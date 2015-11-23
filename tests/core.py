@@ -46,7 +46,7 @@ class CoreTest(unittest.TestCase):
         self.parser = cli.get_parser()
 
         args = self.parser.parse_args(['worker'])
-        self.worker = Process(target=cli.worker, args=args)
+        self.worker = Process(target=cli.worker, args=(args,))
         self.worker.start()
 
         self.dagbag = models.DagBag(
@@ -307,7 +307,7 @@ class CliTests(unittest.TestCase):
         self.parser = cli.get_parser()
 
         args = self.parser.parse_args(['worker'])
-        self.worker = Process(target=cli.worker, args=args)
+        self.worker = Process(target=cli.worker, args=(args,))
         self.worker.start()
 
         app = application.create_app()
@@ -569,7 +569,7 @@ class ApiTests(unittest.TestCase):
         configuration.test_mode()
         self.parser = cli.get_parser()
         args = self.parser.parse_args(['worker'])
-        self.worker = Process(target=cli.worker, args=args)
+        self.worker = Process(target=cli.worker, args=(args,))
         self.worker.start()
 
         configuration.conf.set("core", "dag_synchronizer", "airflow.contrib.synchronizers.base_synchronizer")
@@ -597,7 +597,7 @@ if 'MySqlOperator' in dir(operators):
                 'mysql_conn_id': 'airflow_db',
                 'start_date': DEFAULT_DATE
             }
-            dag = DAG(TEST_DAG_ID, default_args=args)
+            dag = DAG(TEST_DAG_ID, default_args=(args,))
             self.dag = dag
 
         def mysql_operator_test(self):
@@ -656,7 +656,7 @@ if 'PostgresOperator' in dir(operators):
         def setUp(self):
             configuration.test_mode()
             args = {'owner': 'airflow', 'start_date': DEFAULT_DATE}
-            dag = DAG(TEST_DAG_ID, default_args=args)
+            dag = DAG(TEST_DAG_ID, default_args=(args,))
             self.dag = dag
 
         def postgres_operator_test(self):
@@ -685,7 +685,7 @@ class HttpOpSensorTest(unittest.TestCase):
     def setUp(self):
         configuration.test_mode()
         args = {'owner': 'airflow', 'start_date': DEFAULT_DATE_ISO}
-        dag = DAG(TEST_DAG_ID, default_args=args)
+        dag = DAG(TEST_DAG_ID, default_args=(args,))
         self.dag = dag
 
     def test_get(self):
@@ -803,7 +803,7 @@ if 'AIRFLOW_RUNALL_TESTS' in os.environ:
         def setUp(self):
             configuration.test_mode()
             args = {'owner': 'airflow', 'start_date': DEFAULT_DATE_ISO}
-            dag = DAG(TEST_DAG_ID, default_args=args)
+            dag = DAG(TEST_DAG_ID, default_args=(args,))
             self.dag = dag
 
         def test_clear(self):
@@ -838,7 +838,7 @@ if 'AIRFLOW_RUNALL_TESTS' in os.environ:
         def setUp(self):
             configuration.test_mode()
             args = {'owner': 'airflow', 'start_date': DEFAULT_DATE}
-            dag = DAG(TEST_DAG_ID, default_args=args)
+            dag = DAG(TEST_DAG_ID, default_args=(args,))
             self.dag = dag
             self.hql = """
             USE airflow;

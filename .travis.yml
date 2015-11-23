@@ -4,6 +4,7 @@ jdk: oraclejdk7
 services:
   - mysql
   - postgresql
+  - rabbitmq
 addons:
   apt:
     packages:

@@ -4,6 +4,7 @@ import os
 from time import sleep
 import unittest
 import re
+from multiprocessing import Process
 
 from airflow import configuration
 configuration.test_mode()
@@ -41,6 +42,9 @@ reset()
 class CoreTest(unittest.TestCase):
 
     def setUp(self):
+        self.worker = Process(target=cli.worker)
+        self.worker.start()
+
         configuration.test_mode()
         self.dagbag = models.DagBag(
             dag_folder=DEV_NULL, include_examples=True)
@@ -288,6 +292,9 @@ class CoreTest(unittest.TestCase):
             failed, tests = doctest.testmod(mod)
             if failed:
                 raise Exception("Failed a doctest")
+
+    def tearDown(self):
+        self.worker.terminate()
 
 
 class CliTests(unittest.TestCase):

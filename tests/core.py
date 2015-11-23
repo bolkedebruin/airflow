@@ -42,10 +42,11 @@ reset()
 class CoreTest(unittest.TestCase):
 
     def setUp(self):
+        configuration.test_mode()
+
         self.worker = Process(target=cli.worker)
         self.worker.start()
 
-        configuration.test_mode()
         self.dagbag = models.DagBag(
             dag_folder=DEV_NULL, include_examples=True)
         self.args = {'owner': 'airflow', 'start_date': DEFAULT_DATE}
@@ -301,6 +302,10 @@ class CliTests(unittest.TestCase):
 
     def setUp(self):
         configuration.test_mode()
+
+        self.worker = Process(target=cli.worker)
+        self.worker.start()
+
         app = application.create_app()
         app.config['TESTING'] = True
         self.parser = cli.get_parser()
@@ -353,6 +358,9 @@ class CliTests(unittest.TestCase):
         cli.backfill(self.parser.parse_args([
             'backfill', 'example_bash_operator', '-l',
             '-s', DEFAULT_DATE.isoformat()]))
+
+    def tearDown(self):
+        self.worker.terminate()
 
 
 class WebUiTests(unittest.TestCase):
@@ -556,6 +564,9 @@ class ApiTests(unittest.TestCase):
 
     def setUp(self):
         configuration.test_mode()
+        self.worker = Process(target=cli.worker)
+        self.worker.start()
+
         configuration.conf.set("core", "dag_synchronizer", "airflow.contrib.synchronizers.base_synchronizer")
         app = application.create_app()
         app.config['TESTING'] = True
@@ -567,6 +578,8 @@ class ApiTests(unittest.TestCase):
             )
         assert "EXECUTED" in response.data.decode('utf-8')
 
+    def tearDown(self):
+        self.worker.terminate()
 
 if 'MySqlOperator' in dir(operators):
     # Only testing if the operator is installed

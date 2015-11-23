@@ -44,7 +44,7 @@ class CoreTest(unittest.TestCase):
     def setUp(self):
         configuration.test_mode()
 
-        self.worker = Process(target=cli.worker)
+        self.worker = Process(target=cli.worker, args=())
         self.worker.start()
 
         self.dagbag = models.DagBag(
@@ -303,7 +303,7 @@ class CliTests(unittest.TestCase):
     def setUp(self):
         configuration.test_mode()
 
-        self.worker = Process(target=cli.worker)
+        self.worker = Process(target=cli.worker, args=())
         self.worker.start()
 
         app = application.create_app()
@@ -564,7 +564,7 @@ class ApiTests(unittest.TestCase):
 
     def setUp(self):
         configuration.test_mode()
-        self.worker = Process(target=cli.worker)
+        self.worker = Process(target=cli.worker, args=())
         self.worker.start()
 
         configuration.conf.set("core", "dag_synchronizer", "airflow.contrib.synchronizers.base_synchronizer")

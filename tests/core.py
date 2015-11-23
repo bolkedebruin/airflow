@@ -43,8 +43,10 @@ class CoreTest(unittest.TestCase):
 
     def setUp(self):
         configuration.test_mode()
+        self.parser = cli.get_parser()
 
-        self.worker = Process(target=cli.worker, args=())
+        args = self.parser.parse_args(['worker'])
+        self.worker = Process(target=cli.worker, args=args)
         self.worker.start()
 
         self.dagbag = models.DagBag(
@@ -302,13 +304,14 @@ class CliTests(unittest.TestCase):
 
     def setUp(self):
         configuration.test_mode()
+        self.parser = cli.get_parser()
 
-        self.worker = Process(target=cli.worker, args=())
+        args = self.parser.parse_args(['worker'])
+        self.worker = Process(target=cli.worker, args=args)
         self.worker.start()
 
         app = application.create_app()
         app.config['TESTING'] = True
-        self.parser = cli.get_parser()
         self.dagbag = models.DagBag(
             dag_folder=DEV_NULL, include_examples=True)
 
@@ -564,7 +567,9 @@ class ApiTests(unittest.TestCase):
 
     def setUp(self):
         configuration.test_mode()
-        self.worker = Process(target=cli.worker, args=())
+        self.parser = cli.get_parser()
+        args = self.parser.parse_args(['worker'])
+        self.worker = Process(target=cli.worker, args=args)
         self.worker.start()
 
         configuration.conf.set("core", "dag_synchronizer", "airflow.contrib.synchronizers.base_synchronizer")

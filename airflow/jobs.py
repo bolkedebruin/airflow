@@ -378,13 +378,24 @@ class SchedulerJob(BaseJob):
                 filename=filename, stacktrace=stacktrace))
         session.commit()
 
+    def _normalize_schedule(self, dag, next_run_date, dttm):
+        if dag.previous_schedule(next_run_date) == dttm:
+            return dttm
+
+        return next_run_date
+
     def schedule_dag(self, dag):
         """
         This method checks whether a new DagRun needs to be created
         for a DAG based on scheduling interval
         Returns DagRun if one is scheduled. Otherwise returns None.
         """
+        self.logger.debug("Scheduling dag: {} Schedule interval:{}"
+                          .format(dag.dag_id, dag.schedule_interval))
+
+        # todo: reverse check to simplify logic
         if dag.schedule_interval:
+            # Get dags that are currently running
             DagRun = models.DagRun
             session = settings.Session()
             qry = session.query(DagRun).filter(
@@ -393,8 +404,16 @@ class SchedulerJob(BaseJob):
                 DagRun.state == State.RUNNING,
             )
             active_runs = qry.all()
+
+            # Don't allow more runs than dag max runs
             if len(active_runs) >= dag.max_active_runs:
+                self.logger.info("The count of active runs ({}) for "
+                                 "dag {} is above the threshold of {}"
+                                 .format(active_runs, dag.dag_id, dag.max_active_runs))
                 return
+
+            # check if certain runs are beyond their timeout
+            # todo: could be in in one sql statement
             for dr in active_runs:
                 if (
                         dr.start_date and dag.dagrun_timeout and
@@ -403,39 +422,77 @@ class SchedulerJob(BaseJob):
                     dr.end_date = datetime.now()
             session.commit()
 
+            # check last scheduled run
+            # get this dag's max execution date by
+            #  external trigger is false
+            #  and "like" Dag Run ID.ID
+            # bolke: why a like?
             qry = session.query(func.max(DagRun.execution_date)).filter_by(
-                    dag_id = dag.dag_id).filter(
-                        or_(DagRun.external_trigger == False,
-                            # add % as a wildcard for the like query
-                            DagRun.run_id.like(DagRun.ID_PREFIX+'%')))
+                dag_id=dag.dag_id).filter(
+                or_(DagRun.external_trigger is False,
+                    # add % as a wildcard for the like query
+                    DagRun.run_id.like(DagRun.ID_PREFIX+'%')
+                    )
+            )
             last_scheduled_run = qry.scalar()
+            self.logger.debug("Last scheduled run: {}".format(last_scheduled_run))
+
+            # Determine next run date
             next_run_date = None
             if dag.schedule_interval == '@once' and not last_scheduled_run:
                 next_run_date = datetime.now()
             elif not last_scheduled_run:
                 # First run
+                self.logger.debug("Scheduling {} for the first time".format(dag.dag_id))
+
+                # Get the maximum execution date for the tasks associated with this dag
                 TI = models.TaskInstance
                 latest_run = (
                     session.query(func.max(TI.execution_date))
                     .filter_by(dag_id=dag.dag_id)
                     .scalar()
                 )
+
                 if latest_run:
                     # Migrating from previous version
                     # make the past 5 runs active
+                    # todo: remove this?
+                    # fixme: from what version and why not fixed in alembic?
+                    self.logger.warning("Migrating from previous version for dag {} "
+                                        "marking past 5 runs active".format(dag.dag_id))
                     next_run_date = dag.date_range(latest_run, -5)[0]
                 else:
+                    # Set start_date based on tasks
                     task_start_dates = [t.start_date for t in dag.tasks]
                     if task_start_dates:
-                        next_run_date = min(task_start_dates)
+                        # set next_run_date to start_date + interval unless start date
+                        # is on the interval
+                        min_task_start_date = min(task_start_dates)
+                        next_run_date = dag.following_schedule(min_task_start_date)
+                        next_run_date = self._normalize_schedule(dag,
+                                                                 next_run_date,
+                                                                 min_task_start_date)
+                        self.logger.debug("Next run date based on tasks {}"
+                                          .format(next_run_date))
                     else:
                         next_run_date = None
             elif dag.schedule_interval != '@once':
                 next_run_date = dag.following_schedule(last_scheduled_run)
 
             # don't ever schedule prior to the dag's start_date
+            # this can happen if the tasks have a start date that
+            # is before the dag start date
             if dag.start_date:
                 next_run_date = dag.start_date if not next_run_date else max(next_run_date, dag.start_date)
+                if next_run_date == dag.start_date:
+                    next_run_date = dag.following_schedule(dag.start_date)
+                    next_run_date = self._normalize_schedule(dag,
+                                                             next_run_date,
+                                                             dag.start_date)
+                self.logger.debug("Dag start date: {}. Next run date: {}"
+                                  .format(dag.start_date, next_run_date))
+
+            self.logger.debug("Final next_run_date: {}".format(next_run_date))
 
             # this structure is necessary to avoid a TypeError from concatenating
             # NoneType
@@ -444,10 +501,16 @@ class SchedulerJob(BaseJob):
             elif next_run_date:
                 schedule_end = dag.following_schedule(next_run_date)
 
+            # Don't schedule beyond end date of the dag
             if next_run_date and dag.end_date and next_run_date > dag.end_date:
+                self.logger.debug("Not scheduling dag as "
+                                  "next_run_date {} > dag.end_date {}"
+                                  .format(next_run_date, dag.end_date))
                 return
 
             if next_run_date and schedule_end and schedule_end <= datetime.now():
+                self.logger.debug("Scheduling dag on next_run_date: {}"
+                                  .format(next_run_date))
                 next_run = DagRun(
                     dag_id=dag.dag_id,
                     run_id='scheduled__' + next_run_date.isoformat(),

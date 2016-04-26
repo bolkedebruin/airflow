@@ -427,21 +427,28 @@ class SchedulerJob(BaseJob):
             #  external trigger is false
             #  and "like" Dag Run ID.ID
             # bolke: why a like?
-            qry = session.query(func.max(DagRun.execution_date)).filter_by(
-                dag_id=dag.dag_id).filter(
+            #qry = session.query(func.max(DagRun.execution_date)).filter_by(
+            #    dag_id=dag.dag_id).filter(
+            #    or_(DagRun.external_trigger is False,
+            #        # add % as a wildcard for the like query
+            #        DagRun.run_id.like(DagRun.ID_PREFIX+'%')
+            #        )
+            #)
+            #previous = qry.scalar()
+            previous = session.query(DagRun).filter_by(dag_id=dag.dag_id).filter(
                 or_(DagRun.external_trigger is False,
-                    # add % as a wildcard for the like query
                     DagRun.run_id.like(DagRun.ID_PREFIX+'%')
                     )
-            )
-            last_scheduled_run = qry.scalar()
-            self.logger.debug("Last scheduled run: {}".format(last_scheduled_run))
+            ).order_by(DagRun.execution_date.desc()).first()
+
+            if previous:
+                self.logger.debug("Previous run {}".format(previous.execution_date))
 
             # Determine next run date
             next_run_date = None
-            if dag.schedule_interval == '@once' and not last_scheduled_run:
+            if dag.schedule_interval == '@once' and not previous:
                 next_run_date = datetime.now()
-            elif not last_scheduled_run:
+            elif not previous:
                 # First run
                 self.logger.debug("Scheduling {} for the first time".format(dag.dag_id))
 
@@ -477,7 +484,7 @@ class SchedulerJob(BaseJob):
                     else:
                         next_run_date = None
             elif dag.schedule_interval != '@once':
-                next_run_date = dag.following_schedule(last_scheduled_run)
+                next_run_date = dag.following_schedule(previous.execution_date)
 
             # don't ever schedule prior to the dag's start_date
             # this can happen if the tasks have a start date that
@@ -517,7 +524,8 @@ class SchedulerJob(BaseJob):
                     execution_date=next_run_date,
                     start_date=datetime.now(),
                     state=State.RUNNING,
-                    external_trigger=False
+                    external_trigger=False,
+                    previous=previous.id if previous else None,
                 )
                 session.add(next_run)
                 session.commit()

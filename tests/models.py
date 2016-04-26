@@ -29,6 +29,7 @@ from airflow.models import State as ST
 from airflow.models import DagModel
 from airflow.operators import DummyOperator, BashOperator, PythonOperator
 from airflow.utils.state import State
+from airflow.settings import Session
 from mock import patch
 from nose_parameterized import parameterized
 
@@ -424,21 +425,70 @@ class TaskInstanceTest(unittest.TestCase):
         dag = dagbag.get_dag('test_depends_on_past')
         dag.clear()
         task = dag.tasks[0]
-        run_date = task.start_date + datetime.timedelta(days=5)
-        ti = TI(task, run_date)
+
+        delta = task.start_date + datetime.timedelta(days=5)
+        session = Session()
+        DR = models.DagRun
+
+        run1 = DR(
+            dag_id=dag.dag_id,
+            run_id="run1",
+            execution_date=task.start_date,
+            start_date=datetime.datetime.now(),
+            state=State.RUNNING,
+            external_trigger=False,
+            previous=None
+        )
+
+        session.add(run1)
+        session.commit()
+        run1 = session.query(DR).filter(
+            DR.dag_id == dag.dag_id,
+            DR.run_id == "run1",
+            DR.execution_date == task.start_date
+        ).first()
+
+        run2 = models.DagRun(
+            dag_id=dag.dag_id,
+            run_id="run2",
+            execution_date=delta,
+            start_date=datetime.datetime.now(),
+            state=State.RUNNING,
+            external_trigger=False,
+            previous=run1.id
+        )
+        session.add(run2)
+        session.commit()
+        run2 = session.query(DR).filter(
+            DR.dag_id == dag.dag_id,
+            DR.run_id == "run2",
+            DR.execution_date == delta
+        ).first()
+
+        run_date = delta
+        ti = TI(task, run_date, dag_run_id=run2.id)
 
         # depends_on_past prevents the run
-        task.run(start_date=run_date, end_date=run_date)
+        task.run(start_date=run_date, end_date=run_date, dag_run_id=run2.id)
         ti.refresh_from_db()
         self.assertIs(ti.state, None)
 
-        # ignore first depends_on_past to allow the run
+        # fulfill requirements
+        run1.state = State.SUCCESS
+        session.merge(run1)
+        session.commit()
+
         task.run(
             start_date=run_date,
             end_date=run_date,
-            ignore_first_depends_on_past=True)
+            dag_run_id=run2.id)
         ti.refresh_from_db()
+
         self.assertEqual(ti.state, State.SUCCESS)
+
+        session.query(models.DagRun).delete()
+        session.query(TI).delete()
+        session.commit()
 
     # Parameterized tests to check for the correct firing
     # of the trigger_rule under various circumstances

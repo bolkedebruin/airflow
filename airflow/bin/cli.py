@@ -214,7 +214,11 @@ def run(args, dag=None):
         dag = dag_pickle.pickle
     task = dag.get_task(task_id=args.task_id)
 
-    ti = TaskInstance(task, args.execution_date)
+    dag_run_id = None
+    if args.dag_run_id:
+        dag_run_id = args.dag_run_id
+
+    ti = TaskInstance(task, args.execution_date, dag_run_id=dag_run_id)
 
     if args.local:
         print("Logging into: " + filename)
@@ -610,6 +614,8 @@ class CLIFactory(object):
         # Shared
         'dag_id': Arg(("dag_id",), "The id of the dag"),
         'task_id': Arg(("task_id",), "The id of the task"),
+        # fixme: run_id might be a better fit
+        'dag_run_id': Arg(("-dr", "--dag_run_id"), "The id of the dag run"),
         'execution_date': Arg(
             ("execution_date",), help="The execution date of the DAG",
             type=parsedate),
@@ -859,7 +865,7 @@ class CLIFactory(object):
             'help': "Run a single task instance",
             'args': (
                 'dag_id', 'task_id', 'execution_date', 'subdir',
-                'mark_success', 'force', 'pool',
+                'dag_run_id', 'mark_success', 'force', 'pool',
                 'local', 'raw', 'ignore_dependencies',
                 'ignore_depends_on_past', 'ship_dag', 'pickle', 'job_id'),
         }, {

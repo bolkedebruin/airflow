@@ -641,6 +641,7 @@ class TaskInstance(Base):
     task_id = Column(String(ID_LEN), primary_key=True)
     dag_id = Column(String(ID_LEN), primary_key=True)
     execution_date = Column(DateTime, primary_key=True)
+    dag_run_id = Column(Integer)
     start_date = Column(DateTime)
     end_date = Column(DateTime)
     duration = Column(Float)
@@ -661,10 +662,11 @@ class TaskInstance(Base):
         Index('ti_pool', pool, state, priority_weight),
     )
 
-    def __init__(self, task, execution_date, state=None):
+    def __init__(self, task, execution_date, state=None, dag_run_id=None):
         self.dag_id = task.dag_id
         self.task_id = task.task_id
         self.execution_date = execution_date
+        self.dag_run_id = dag_run_id
         self.task = task
         self.queue = task.queue
         self.pool = task.pool
@@ -704,6 +706,8 @@ class TaskInstance(Base):
         cmd += "--local " if local else ""
         cmd += "--pool {pool} " if pool else ""
         cmd += "--raw " if raw else ""
+        cmd += "--dag_run_id {self.dag_run_id} " if self.dag_run_id else ""
+
         if not pickle_id and dag:
             if dag.full_filepath != dag.filepath:
                 cmd += "-sd DAGS_FOLDER/{dag.filepath} "
@@ -999,9 +1003,19 @@ class TaskInstance(Base):
         task = self.task
 
         # Checking that the depends_on_past is fulfilled
-        # 1. get the last TI run prior to the current execution date
+        # 1. get the last dag run prior to the current execution date
         # 2. if there is one and it didn't succeed/skip, the condition fails
-        if (task.depends_on_past and not ignore_depends_on_past):
+        if task.depends_on_past and not ignore_depends_on_past:
+            logging.debug("Checking depends on past for dag run id {}".format(self.dag_run_id))
+            dr = session.query(DagRun).filter(DagRun.id == self.dag_run_id).first()
+            if dr and dr.previous:
+                logging.debug("Found previous dag run")
+                dr_prev = session.query(DagRun).filter(DagRun.id == dr.previous).first()
+                if dr_prev.state not in (State.SUCCESS, State.SKIPPED):
+                    logging.debug("depends_on_past not satisfied")
+                    return False
+
+            # todo: is this still the right logic?
             previous_ti = (
                 session.query(TI)
                     .filter(
@@ -1012,11 +1026,6 @@ class TaskInstance(Base):
                     .first())
 
             if previous_ti:
-                if previous_ti.state not in (State.SUCCESS, State.SKIPPED):
-                    if verbose:
-                        logging.warning("depends_on_past not satisfied")
-                    return False
-
                 # Applying wait_for_downstream
                 previous_ti.task = self.task
                 if task.wait_for_downstream and not \
@@ -2127,15 +2136,16 @@ class BaseOperator(object):
             ignore_dependencies=False,
             ignore_first_depends_on_past=False,
             force=False,
-            mark_success=False):
+            mark_success=False,
+            dag_run_id=None):
         """
-        Run a set of task instances for a date range.
+        Run a set of task instances for a date range and a dag_run
         """
         start_date = start_date or self.start_date
         end_date = end_date or self.end_date or datetime.now()
 
         for dt in self.dag.date_range(start_date, end_date=end_date):
-            TaskInstance(self, dt).run(
+            TaskInstance(self, dt, dag_run_id=dag_run_id).run(
                 mark_success=mark_success,
                 ignore_dependencies=ignore_dependencies,
                 ignore_depends_on_past=(
@@ -2601,7 +2611,7 @@ class DAG(LoggingMixin):
         """
         TI = TaskInstance
         session = settings.Session()
-        active_dates = []
+        active_runs_filtered = []
         active_runs = (
             session.query(DagRun)
             .filter(
@@ -2620,6 +2630,7 @@ class DAG(LoggingMixin):
             )
             .all())
 
+        self.logger.debug("Amount of task instances {}".format(len(task_instances)))
         for ti in task_instances:
             ti.task = self.get_task(ti.task_id)
 
@@ -2684,11 +2695,11 @@ class DAG(LoggingMixin):
 
                 # finally, if the roots aren't done, the dag is still running
                 else:
-                    active_dates.append(run.execution_date)
+                    active_runs_filtered.append(run)
             else:
-                active_dates.append(run.execution_date)
+                active_runs_filtered.append(run)
         session.commit()
-        return active_dates
+        return active_runs_filtered
 
     def resolve_template_files(self):
         for t in self.tasks:

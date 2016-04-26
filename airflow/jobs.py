@@ -452,37 +452,20 @@ class SchedulerJob(BaseJob):
                 # First run
                 self.logger.debug("Scheduling {} for the first time".format(dag.dag_id))
 
-                # Get the maximum execution date for the tasks associated with this dag
-                TI = models.TaskInstance
-                latest_run = (
-                    session.query(func.max(TI.execution_date))
-                    .filter_by(dag_id=dag.dag_id)
-                    .scalar()
-                )
-
-                if latest_run:
-                    # Migrating from previous version
-                    # make the past 5 runs active
-                    # todo: remove this?
-                    # fixme: from what version and why not fixed in alembic?
-                    self.logger.warning("Migrating from previous version for dag {} "
-                                        "marking past 5 runs active".format(dag.dag_id))
-                    next_run_date = dag.date_range(latest_run, -5)[0]
+                # Set start_date based on tasks
+                task_start_dates = [t.start_date for t in dag.tasks]
+                if task_start_dates:
+                    # set next_run_date to start_date + interval unless start date
+                    # is on the interval
+                    min_task_start_date = min(task_start_dates)
+                    next_run_date = dag.following_schedule(min_task_start_date)
+                    next_run_date = self._normalize_schedule(dag,
+                                                             next_run_date,
+                                                             min_task_start_date)
+                    self.logger.debug("Next run date based on tasks {}"
+                                      .format(next_run_date))
                 else:
-                    # Set start_date based on tasks
-                    task_start_dates = [t.start_date for t in dag.tasks]
-                    if task_start_dates:
-                        # set next_run_date to start_date + interval unless start date
-                        # is on the interval
-                        min_task_start_date = min(task_start_dates)
-                        next_run_date = dag.following_schedule(min_task_start_date)
-                        next_run_date = self._normalize_schedule(dag,
-                                                                 next_run_date,
-                                                                 min_task_start_date)
-                        self.logger.debug("Next run date based on tasks {}"
-                                          .format(next_run_date))
-                    else:
-                        next_run_date = None
+                    next_run_date = None
             elif dag.schedule_interval != '@once':
                 next_run_date = dag.following_schedule(previous.execution_date)
 
@@ -565,40 +548,47 @@ class SchedulerJob(BaseJob):
             db_dag.last_scheduler_run = datetime.now()
             session.commit()
 
-        active_runs = dag.get_active_runs()
+        active_dag_runs = dag.get_active_runs()
+        active_dates = [run.execution_date for run in active_dag_runs]
+
+        self.logger.debug("{} active runs for dag {}".format(active_dag_runs, dag.dag_id))
 
         self.logger.info('Getting list of tasks to skip for active runs.')
         skip_tis = set()
-        if active_runs:
+        if active_dag_runs:
             qry = (
                 session.query(TI.task_id, TI.execution_date)
                 .filter(
                     TI.dag_id == dag.dag_id,
-                    TI.execution_date.in_(active_runs),
+                    TI.execution_date.in_(active_dates),
                     TI.state.in_((State.RUNNING, State.SUCCESS, State.FAILED)),
                 )
             )
             skip_tis = {(ti[0], ti[1]) for ti in qry.all()}
 
-        descartes = [obj for obj in product(dag.tasks, active_runs)]
+        descartes = [obj for obj in product(dag.tasks, active_dag_runs)]
         could_not_run = set()
         self.logger.info('Checking dependencies on {} tasks instances, minus {} '
                      'skippable ones'.format(len(descartes), len(skip_tis)))
 
-        for task, dttm in descartes:
-            if task.adhoc or (task.task_id, dttm) in skip_tis:
+        for task, dag_run in descartes:
+            if task.adhoc or (task.task_id, dag_run.execution_date) in skip_tis:
                 continue
-            ti = TI(task, dttm)
-
+            ti = TI(task, dag_run.execution_date, dag_run_id=dag_run.id)
+            self.logger.debug("Opening task {} for dag_run_id {}".format(ti.key, dag_run.id))
             ti.refresh_from_db()
             if ti.state in (
                     State.RUNNING, State.QUEUED, State.SUCCESS, State.FAILED):
                 continue
             elif ti.is_runnable(flag_upstream_failed=True):
                 self.logger.debug('Queuing task: {}'.format(ti))
-                queue.put((ti.key, pickle_id))
+                # todo: make key use dag_run_id
+                queue.put((ti.key, ti.dag_run_id, pickle_id))
             else:
                 could_not_run.add(ti)
+            # make sure the have the task asap in the db
+            #session.merge(ti)
+            #session.commit()
 
         # this type of deadlock happens when dagruns can't even start and so
         # the TI's haven't been persisted to the     database.
@@ -610,7 +600,7 @@ class SchedulerJob(BaseJob):
                 .filter(
                     models.DagRun.dag_id == dag.dag_id,
                     models.DagRun.state == State.RUNNING,
-                    models.DagRun.execution_date.in_(active_runs))
+                    models.DagRun.execution_date.in_(active_dates))
                 .update(
                     {models.DagRun.state: State.FAILED},
                     synchronize_session='fetch'))
@@ -826,10 +816,10 @@ class SchedulerJob(BaseJob):
                     j.join()
 
                 while not tis_q.empty():
-                    ti_key, pickle_id = tis_q.get()
+                    ti_key, dag_run_id, pickle_id = tis_q.get()
                     dag = dagbag.dags[ti_key[0]]
                     task = dag.get_task(ti_key[1])
-                    ti = TI(task, ti_key[2])
+                    ti = TI(task, ti_key[2], dag_run_id=dag_run_id)
                     self.executor.queue_task_instance(ti, pickle_id=pickle_id)
 
                 self.logger.info("Done queuing tasks, calling the executor's "

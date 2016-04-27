@@ -27,6 +27,7 @@ import socket
 import subprocess
 import multiprocessing
 import math
+import uuid
 from time import sleep
 
 from sqlalchemy import Column, Integer, String, DateTime, func, Index, or_
@@ -892,6 +893,7 @@ class BackfillJob(BaseJob):
 
         start_date = self.bf_start_date
         end_date = self.bf_end_date
+        run_id = 'backfill__' + str(uuid.uuid4())
 
         # picklin'
         pickle_id = None
@@ -905,6 +907,34 @@ class BackfillJob(BaseJob):
         executor = self.executor
         executor.start()
         executor_fails = Counter()
+
+        # Create a DagRun for this
+        # see if there is a previous dag run
+        DR = models.DagRun
+        previous = session.query(DR).filter_by(dag_id=self.dag.dag_id).filter(
+            or_(DR.external_trigger is False,
+                DR.run_id.like(DR.ID_PREFIX+'%')
+                )
+        ).order_by(DR.execution_date.desc()).first()
+
+        # todo: factor this out, the scheduler has the same kind of logic
+        dr_start_date = start_date or min([t.start_date for t in dag.tasks])
+        dr = DR(
+            dag_id=self.dag.dag_id,
+            run_id=run_id,
+            execution_date=dr_start_date,
+            start_date=datetime.now(),
+            state=State.RUNNING,
+            external_trigger=False,
+            previous=previous
+        )
+        session.add(dr)
+        session.commit()
+        dr = session.query(DR).filter(
+            DR.dag_id == self.dag.dag_id,
+            DR.run_id == run_id,
+            DR.execution_date == start_date
+        ).first()
 
         # Build a list of all instances to run
         tasks_to_run = {}
@@ -922,7 +952,7 @@ class BackfillJob(BaseJob):
             start_date = start_date or task.start_date
             end_date = end_date or task.end_date or datetime.now()
             for dttm in self.dag.date_range(start_date, end_date=end_date):
-                ti = models.TaskInstance(task, dttm)
+                ti = models.TaskInstance(task, dttm, dag_run_id=dr.id)
                 tasks_to_run[ti.key] = ti
                 session.merge(ti)
         session.commit()
@@ -1105,7 +1135,12 @@ class BackfillJob(BaseJob):
                     'the command line.')
             err += ' These tasks were unable to run:\n{}\n'.format(deadlocked)
         if err:
+            dr.state = State.FAILED
+            session.commit()
             raise AirflowException(err)
+
+        dr.state = State.SUCCESS
+        session.commit()
 
         self.logger.info("Backfill done. Exiting.")
 

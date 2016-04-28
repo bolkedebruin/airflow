@@ -27,14 +27,42 @@ branch_labels = None
 depends_on = None
 
 from alembic import op
+from alembic import context
 import sqlalchemy as sa
 
 
 def upgrade():
-    op.drop_constraint("dag_id", "dag_run", "unique")
-    op.create_unique_constraint("dag_id", "dag_run", ["dag_id", "execution_date", "run_id"])
+    url = context.config.get_main_option("sqlalchemy.url")
+    if url.find("postgresql") > -1:
+        op.drop_constraint("dag_run_dag_id_execution_date_key", "dag_run")
+        op.create_unique_constraint("uq_dag_run_dag_id_execution_date_run_id",
+                                    "dag_run", ["dag_id", "execution_date", "run_id"])
+    elif url.find("mysql") > -1:
+        op.drop_constraint("dag_id", "dag_run", "unique")
+        op.create_unique_constraint("uq_dag_run_dag_id_execution_date_run_id",
+                                    "dag_run", ["dag_id", "execution_date", "run_id"])
+    elif url.find("sqlite") > -1:
+        with op.batch_alter_table('dag_run',
+                                  table_args=(
+                                      sa.UniqueConstraint('dag_id','run_id',
+                                                          name="uq_dag_run_dag_id_run_id"),
+                                  )) as batch_op:
+            batch_op.create_unique_constraint("uq_dag_run_dag_id_execution_date_run_id",
+                                              ["dag_id", "execution_date", "run_id"])
 
 
 def downgrade():
-    op.drop_constraint("dag_id", "dag_run", "unique")
-    op.create_unique_constraint("dag_id", "dag_run", ["dag_id", "execution_date"])
+    url = context.config.get_main_option("sqlalchemy.url")
+    if url.find("sqlite") > -1:
+        with op.batch_alter_table('dag_run',
+                                  table_args=(
+                                          sa.UniqueConstraint('dag_id','run_id',
+                                                              name="uq_dag_run_dag_id_run_id"),
+                                  )) as batch_op:
+            batch_op.create_unique_constraint("uq_dag_run_dag_id_run_id",
+                                              ["dag_id", "execution_date"])
+
+    else:
+        op.drop_constraint("uq_dag_run_dag_id_execution_date_run_id", "dag_run", "unique")
+        # None is used to get the automated naming scheme from the db
+        op.create_unique_constraint(None, "dag_run", ["dag_id", "execution_date"])

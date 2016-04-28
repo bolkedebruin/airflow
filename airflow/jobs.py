@@ -379,12 +379,6 @@ class SchedulerJob(BaseJob):
                 filename=filename, stacktrace=stacktrace))
         session.commit()
 
-    def _normalize_schedule(self, dag, next_run_date, dttm):
-        if dag.previous_schedule(next_run_date) == dttm:
-            return dttm
-
-        return next_run_date
-
     def schedule_dag(self, dag):
         """
         This method checks whether a new DagRun needs to be created
@@ -459,10 +453,7 @@ class SchedulerJob(BaseJob):
                     # set next_run_date to start_date + interval unless start date
                     # is on the interval
                     min_task_start_date = min(task_start_dates)
-                    next_run_date = dag.following_schedule(min_task_start_date)
-                    next_run_date = self._normalize_schedule(dag,
-                                                             next_run_date,
-                                                             min_task_start_date)
+                    next_run_date = dag.normalize_schedule(min_task_start_date)
                     self.logger.debug("Next run date based on tasks {}"
                                       .format(next_run_date))
                 else:
@@ -476,10 +467,8 @@ class SchedulerJob(BaseJob):
             if dag.start_date:
                 next_run_date = dag.start_date if not next_run_date else max(next_run_date, dag.start_date)
                 if next_run_date == dag.start_date:
-                    next_run_date = dag.following_schedule(dag.start_date)
-                    next_run_date = self._normalize_schedule(dag,
-                                                             next_run_date,
-                                                             dag.start_date)
+                    next_run_date = dag.normalize_schedule(dag.start_date)
+
                 self.logger.debug("Dag start date: {}. Next run date: {}"
                                   .format(dag.start_date, next_run_date))
 

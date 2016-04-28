@@ -489,8 +489,8 @@ class SchedulerJob(BaseJob):
                 return
 
             if next_run_date and schedule_end and schedule_end <= datetime.now():
-                self.logger.debug("Scheduling dag on next_run_date: {}"
-                                  .format(next_run_date))
+                self.logger.debug("Scheduling dag on next_run_date: {} (previous id: {})"
+                                  .format(next_run_date, previous.id if previous else None))
                 next_run = DagRun(
                     dag_id=dag.dag_id,
                     run_id='scheduled__' + next_run_date.isoformat(),
@@ -502,6 +502,7 @@ class SchedulerJob(BaseJob):
                 )
                 session.add(next_run)
                 session.commit()
+                self.logger.debug("Done")
                 return next_run
 
     def process_dag(self, dag, queue):
@@ -878,6 +879,7 @@ class BackfillJob(BaseJob):
         """
         Runs a dag for a specified date range.
         """
+        self.logger.debug("Start _execute")
         session = settings.Session()
 
         start_date = self.bf_start_date
@@ -915,7 +917,7 @@ class BackfillJob(BaseJob):
             start_date=datetime.now(),
             state=State.RUNNING,
             external_trigger=False,
-            previous=previous
+            previous=previous.id if previous else None
         )
         session.add(dr)
         session.commit()
@@ -1132,6 +1134,7 @@ class BackfillJob(BaseJob):
         session.commit()
 
         self.logger.info("Backfill done. Exiting.")
+        self.logger.debug("Done _execute")
 
 
 class LocalTaskJob(BaseJob):

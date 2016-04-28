@@ -109,6 +109,11 @@ class BackfillJobTest(unittest.TestCase):
         """
         dag = self.dagbag.get_dag('test_depends_on_past')
         dag.clear()
+
+        # make sure there is a past to depend on
+        scheduler = SchedulerJob()
+        scheduler.schedule_dag(dag)
+
         run_date = DEFAULT_DATE + datetime.timedelta(days=5)
 
         # backfill should deadlock
@@ -133,6 +138,13 @@ class BackfillJobTest(unittest.TestCase):
         Test that CLI respects -I argument
         """
         dag_id = 'test_dagrun_states_deadlock'
+        dag = self.dagbag.get_dag(dag_id)
+        dag.clear()
+
+        # make sure there is a past to depend on
+        scheduler = SchedulerJob()
+        scheduler.schedule_dag(dag)
+
         run_date = DEFAULT_DATE + datetime.timedelta(days=1)
         args = [
             'backfill',
@@ -141,8 +153,6 @@ class BackfillJobTest(unittest.TestCase):
             '-s',
             run_date.isoformat(),
         ]
-        dag = self.dagbag.get_dag(dag_id)
-        dag.clear()
 
         self.assertRaisesRegexp(
             AirflowException,

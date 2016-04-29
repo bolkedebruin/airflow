@@ -973,6 +973,15 @@ class TaskInstance(Base):
         )
 
     @provide_session
+    @property
+    def dag_run(self, session=None):
+        if not self.dag_run_id:
+            return None
+
+        dr = session.query(DagRun).filter(DagRun.id == self.dag_run_id).first()
+        return dr
+
+    @provide_session
     def are_dependencies_met(
             self,
             session=None,
@@ -1007,11 +1016,11 @@ class TaskInstance(Base):
         # 2. if there is one and it didn't succeed/skip, the condition fails
         if task.depends_on_past and not ignore_depends_on_past:
             logging.debug("Checking depends on past for dag run id {}".format(self.dag_run_id))
-            dr = session.query(DagRun).filter(DagRun.id == self.dag_run_id).first()
-            if dr and dr.previous:
+            dag_run = self.dag_run
+            if dag_run and dag_run.previous:
                 logging.debug("Found previous dag run")
-                dr_prev = session.query(DagRun).filter(DagRun.id == dr.previous).first()
-                if dr_prev.state not in (State.SUCCESS, State.SKIPPED):
+                previous_run = dag_run.get_previous_dag_run()
+                if previous_run.state not in (State.SUCCESS, State.SKIPPED):
                     logging.debug("depends_on_past not satisfied")
                     return False
 
@@ -2594,6 +2603,21 @@ class DAG(LoggingMixin):
         return execution_date
 
     @property
+    @provide_session
+    def last_scheduled_dagrun(self, session=None):
+        """
+        Returns the last scheduled dag run for this dag, None if there was none
+        """
+        DR = DagRun
+        last = session.query(DR).filter_by(dag_id=self.dag_id).filter(
+            or_(DR.external_trigger is False,
+                DR.run_id.like(DR.ID_PREFIX+'%')
+                )
+        ).order_by(DR.execution_date.desc()).first()
+
+        return last
+
+    @property
     def subdags(self):
         """
         Returns a list of the subdag objects associated to this DAG
@@ -3323,6 +3347,33 @@ class DagRun(Base):
     @classmethod
     def id_for_date(klass, date, prefix=ID_FORMAT_PREFIX):
         return prefix.format(date.isoformat()[:19])
+
+    @provide_session
+    def refresh_from_db(self, session=None):
+        DR = DagRun
+
+        dr = session.query(DR).filter(
+            DR.dag_id == self.dag_id,
+            DR.execution_date == self.execution_date,
+            DR.run_id == self.run_id
+        ).first()
+
+        if dr:
+            self.id = dr.id
+            self.state = dr.state
+
+    @provide_session
+    def get_previous_dag_run(self, session):
+        if not self.previous:
+            return None
+
+        DR = DagRun
+
+        dr = session.query(DR).filter(
+            DR.id == self.previous
+        ).first()
+
+        return dr
 
 
 class Pool(Base):

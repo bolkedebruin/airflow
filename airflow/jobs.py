@@ -418,24 +418,7 @@ class SchedulerJob(BaseJob):
             session.commit()
 
             # check last scheduled run
-            # get this dag's max execution date by
-            #  external trigger is false
-            #  and "like" Dag Run ID.ID
-            # bolke: why a like?
-            #qry = session.query(func.max(DagRun.execution_date)).filter_by(
-            #    dag_id=dag.dag_id).filter(
-            #    or_(DagRun.external_trigger is False,
-            #        # add % as a wildcard for the like query
-            #        DagRun.run_id.like(DagRun.ID_PREFIX+'%')
-            #        )
-            #)
-            #previous = qry.scalar()
-            previous = session.query(DagRun).filter_by(dag_id=dag.dag_id).filter(
-                or_(DagRun.external_trigger is False,
-                    DagRun.run_id.like(DagRun.ID_PREFIX+'%')
-                    )
-            ).order_by(DagRun.execution_date.desc()).first()
-
+            previous = dag.last_scheduled_dagrun
             if previous:
                 self.logger.debug("Previous run {}".format(previous.execution_date))
 
@@ -577,9 +560,6 @@ class SchedulerJob(BaseJob):
                 queue.put((ti.key, ti.dag_run_id, pickle_id))
             else:
                 could_not_run.add(ti)
-            # make sure the have the task asap in the db
-            #session.merge(ti)
-            #session.commit()
 
         # this type of deadlock happens when dagruns can't even start and so
         # the TI's haven't been persisted to the     database.
@@ -899,17 +879,11 @@ class BackfillJob(BaseJob):
         executor.start()
         executor_fails = Counter()
 
-        # Create a DagRun for this
         # see if there is a previous dag run
-        DR = models.DagRun
-        previous = session.query(DR).filter_by(dag_id=self.dag.dag_id).filter(
-            or_(DR.external_trigger is False,
-                DR.run_id.like(DR.ID_PREFIX+'%')
-                )
-        ).order_by(DR.execution_date.desc()).first()
+        previous = self.dag.last_scheduled_dagrun
 
-        # todo: factor this out, the scheduler has the same kind of logic
-        dr_start_date = start_date or min([t.start_date for t in dag.tasks])
+        # Create a DagRun for this
+        dr_start_date = start_date or min([t.start_date for t in self.dag.tasks])
         dr = DR(
             dag_id=self.dag.dag_id,
             run_id=run_id,
@@ -921,11 +895,7 @@ class BackfillJob(BaseJob):
         )
         session.add(dr)
         session.commit()
-        dr = session.query(DR).filter(
-            DR.dag_id == self.dag.dag_id,
-            DR.run_id == run_id,
-            DR.execution_date == start_date
-        ).first()
+        dr.refresh_from_db()
 
         # Build a list of all instances to run
         tasks_to_run = {}

@@ -972,12 +972,12 @@ class TaskInstance(Base):
              (tr == TR.ALL_DONE and upstream_done)
         )
 
-    @provide_session
     @property
-    def dag_run(self, session=None):
+    def dag_run(self):
         if not self.dag_run_id:
             return None
 
+        session = settings.Session()
         dr = session.query(DagRun).filter(DagRun.id == self.dag_run_id).first()
         return dr
 
@@ -1015,7 +1015,8 @@ class TaskInstance(Base):
         # 1. get the last dag run prior to the current execution date
         # 2. if there is one and it didn't succeed/skip, the condition fails
         if task.depends_on_past and not ignore_depends_on_past:
-            logging.debug("Checking depends on past for dag run id {}".format(self.dag_run_id))
+            logging.debug("Checking depends on past for dag run id {}".
+                          format(self.dag_run_id))
             dag_run = self.dag_run
             if dag_run and dag_run.previous:
                 logging.debug("Found previous dag run")
@@ -1025,14 +1026,13 @@ class TaskInstance(Base):
                     return False
 
             # todo: is this still the right logic?
-            previous_ti = (
-                session.query(TI)
-                    .filter(
-                    TI.dag_id == self.dag_id,
-                    TI.task_id == task.task_id,
-                    TI.execution_date < self.execution_date)
-                    .order_by(TI.execution_date.desc())
-                    .first())
+            previous_ti = session.query(TI).filter(
+                TI.dag_id == self.dag_id,
+                TI.task_id == task.task_id,
+                TI.execution_date < self.execution_date
+            ).order_by(
+                TI.execution_date.desc()
+            ).first()
 
             if previous_ti:
                 # Applying wait_for_downstream

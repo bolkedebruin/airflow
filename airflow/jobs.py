@@ -30,7 +30,7 @@ import math
 import uuid
 from time import sleep
 
-from sqlalchemy import Column, Integer, String, DateTime, func, Index, or_
+from sqlalchemy import Column, Integer, String, DateTime, func, Index
 from sqlalchemy.orm.session import make_transient
 
 from airflow import executors, models, settings
@@ -549,7 +549,8 @@ class SchedulerJob(BaseJob):
             if task.adhoc or (task.task_id, dag_run.execution_date) in skip_tis:
                 continue
             ti = TI(task, dag_run.execution_date, dag_run_id=dag_run.id)
-            self.logger.debug("Opening task {} for dag_run_id {}".format(ti.key, dag_run.id))
+            self.logger.debug("Opening task {} for dag_run_id {}".
+                              format(ti.key, dag_run.id))
             ti.refresh_from_db()
             if ti.state in (
                     State.RUNNING, State.QUEUED, State.SUCCESS, State.FAILED):
@@ -884,7 +885,8 @@ class BackfillJob(BaseJob):
 
         # Create a DagRun for this
         dr_start_date = start_date or min([t.start_date for t in self.dag.tasks])
-        dr = DR(
+
+        dr = models.DagRun(
             dag_id=self.dag.dag_id,
             run_id=run_id,
             execution_date=dr_start_date,

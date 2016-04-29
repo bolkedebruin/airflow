@@ -888,6 +888,7 @@ class BackfillJob(BaseJob):
 
         if last and last.execution_date > dr_start_date:
             previous = self.dag.find_previous_dagrun(dr_start_date)
+            self.logger.debug("Found previous dag_run {}".format(previous))
 
         dr = models.DagRun(
             dag_id=self.dag.dag_id,
@@ -904,8 +905,10 @@ class BackfillJob(BaseJob):
 
         # connect next following dagrun to correct past
         if last and last.execution_date > dr_start_date:
-            dr_next = self.dag.find_next_run(dr_start_date)
+            dr_next = self.dag.find_next_dagrun(dr_start_date)
             dr_next.previous = dr.id
+            self.logger.debug("Updating previous to id {}".format(dr.id))
+            session.merge(dr_next)
             session.commit()
 
         # Build a list of all instances to run

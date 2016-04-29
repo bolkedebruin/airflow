@@ -2623,9 +2623,9 @@ class DAG(LoggingMixin):
         previous = session.query(DR).filter_by(dag_id=self.dag_id).filter(
             or_(DR.external_trigger is False,
                 DR.run_id.like(DR.ID_PREFIX+'%')
-                )
-            .and_(DR.execution_date < dttm)
-        ).order_by(DR.execution_date.desc()).first()
+                ))\
+            .filter(DR.execution_date < dttm)\
+            .order_by(DR.execution_date.desc()).first()
 
         return previous
 
@@ -2635,9 +2635,9 @@ class DAG(LoggingMixin):
         dr = session.query(DR).filter_by(dag_id=self.dag_id).filter(
             or_(DR.external_trigger is False,
                 DR.run_id.like(DR.ID_PREFIX+'%')
-                )
-            .and_(DR.execution_date > dttm)
-        ).order_by(DR.execution_date.asc()).first()
+                ))\
+            .filter(DR.execution_date > dttm)\
+            .order_by(DR.execution_date.asc()).first()
 
         return dr
 
@@ -3381,10 +3381,10 @@ class DagRun(Base):
             DR.execution_date == self.execution_date,
             DR.run_id == self.run_id
         ).first()
-
         if dr:
             self.id = dr.id
             self.state = dr.state
+            self.previous = dr.previous
 
     @provide_session
     def get_previous_dag_run(self, session):

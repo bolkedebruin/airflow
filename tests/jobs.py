@@ -166,6 +166,33 @@ class BackfillJobTest(unittest.TestCase):
         # task ran
         self.assertEqual(ti.state, State.SUCCESS)
 
+    def test_backfill_fix_timeline(self):
+        dag_id = 'test_backfill_fix_timeline'
+        dag = self.dagbag.get_dag(dag_id)
+        dag.clear()
+
+        scheduler = SchedulerJob()
+
+        dr1 = scheduler.schedule_dag(dag)
+        self.assertEqual(dr1.execution_date, datetime.datetime(2016, 1, 1, 1, 10, 0))
+
+        dr2 = scheduler.schedule_dag(dag)
+        self.assertEqual(dr2.execution_date, datetime.datetime(2016, 1, 2, 1, 10, 0))
+        self.assertIsNotNone(dr2.previous)
+
+        prev = dr2.previous
+
+        run_date = datetime.datetime(2016, 1, 2, 0, 0, 0)
+
+        BackfillJob(
+            dag=dag,
+            start_date=run_date,
+            end_date=run_date,
+            ignore_first_depends_on_past=True).run()
+
+        dr2.refresh_from_db()
+        self.assertNotEquals(prev, dr2.previous)
+
 
 class SchedulerJobTest(unittest.TestCase):
 
@@ -378,6 +405,25 @@ class SchedulerJobTest(unittest.TestCase):
         session = settings.Session()
         self.assertEqual(
             len(session.query(TI).filter(TI.dag_id == dag_id).all()), 1)
+
+    def test_scheduler_cron_start_date(self):
+        dag_id = 'test_cron_schedule_absolute'
+        dag = self.dagbag.get_dag(dag_id)
+        dag.clear()
+
+        scheduler = SchedulerJob()
+        dr = scheduler.schedule_dag(dag)
+
+        self.assertEqual(dr.execution_date, datetime.datetime(2016, 1, 1, 1, 10, 0))
+
+        dag_id = 'test_cron_schedule_aligned'
+        dag = self.dagbag.get_dag(dag_id)
+        dag.clear()
+
+        scheduler = SchedulerJob()
+        dr = scheduler.schedule_dag(dag)
+
+        self.assertEqual(dr.execution_date, datetime.datetime(2016, 1, 1, 1, 10, 0))
 
     def test_scheduler_multiprocessing(self):
         """

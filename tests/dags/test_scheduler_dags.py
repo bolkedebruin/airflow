@@ -27,3 +27,30 @@ dag1_task1 = DummyOperator(
     task_id='dummy',
     dag=dag1,
     owner='airflow')
+
+dag2 = DAG(
+    dag_id='test_cron_schedule_absolute',
+    start_date=datetime(2016, 1, 1),
+    schedule_interval='10 1 * * *')
+dag2_task1 = DummyOperator(
+    task_id='dummy',
+    dag=dag2,
+    owner='airflow')
+
+dag3 = DAG(
+    dag_id='test_cron_schedule_aligned',
+    start_date=datetime(2016, 1, 1, 1, 10, 0),
+    schedule_interval='10 1 * * *')
+dag3_task1 = DummyOperator(
+    task_id='dummy',
+    dag=dag3,
+    owner='airflow')
+
+dag4 = DAG(
+    dag_id='test_backfill_fix_timeline',
+    start_date=datetime(2016, 1, 1, 1, 10, 0),
+    schedule_interval='10 1 * * *')
+dag4_task1 = DummyOperator(
+    task_id='dummy',
+    dag=dag4,
+    owner='airflow')

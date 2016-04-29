@@ -880,11 +880,14 @@ class BackfillJob(BaseJob):
         executor.start()
         executor_fails = Counter()
 
-        # see if there is a previous dag run
-        previous = self.dag.last_scheduled_dagrun
-
         # Create a DagRun for this
         dr_start_date = start_date or min([t.start_date for t in self.dag.tasks])
+
+        # see if there is a previous dag run
+        previous = last = self.dag.last_scheduled_dagrun
+
+        if last and last.execution_date > dr_start_date:
+            previous = self.dag.find_previous_dagrun(dr_start_date)
 
         dr = models.DagRun(
             dag_id=self.dag.dag_id,
@@ -898,6 +901,12 @@ class BackfillJob(BaseJob):
         session.add(dr)
         session.commit()
         dr.refresh_from_db()
+
+        # connect next following dagrun to correct past
+        if last and last.execution_date > dr_start_date:
+            dr_next = self.dag.find_next_run(dr_start_date)
+            dr_next.previous = dr.id
+            session.commit()
 
         # Build a list of all instances to run
         tasks_to_run = {}

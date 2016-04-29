@@ -2617,6 +2617,30 @@ class DAG(LoggingMixin):
 
         return last
 
+    @provide_session
+    def find_previous_dagrun(self, dttm, session=None):
+        DR = DagRun
+        previous = session.query(DR).filter_by(dag_id=self.dag_id).filter(
+            or_(DR.external_trigger is False,
+                DR.run_id.like(DR.ID_PREFIX+'%')
+                )
+            .and_(DR.execution_date < dttm)
+        ).order_by(DR.execution_date.desc()).first()
+
+        return previous
+
+    @provide_session
+    def find_next_dagrun(self, dttm, session=None):
+        DR = DagRun
+        dr = session.query(DR).filter_by(dag_id=self.dag_id).filter(
+            or_(DR.external_trigger is False,
+                DR.run_id.like(DR.ID_PREFIX+'%')
+                )
+            .and_(DR.execution_date > dttm)
+        ).order_by(DR.execution_date.asc()).first()
+
+        return dr
+
     @property
     def subdags(self):
         """

@@ -903,6 +903,18 @@ class BackfillJob(BaseJob):
         session.commit()
         dr.refresh_from_db()
 
+        # find out if there was a dagrun with the same execution date for this dag
+        # if so change its tasks to point to this run
+        twin = self.dag.get_dagrun_by_date(dr_start_date)
+        if twin:
+            twin.state = state.OVERRIDDEN
+            session.merge(twin)
+            tis = twin.get_task_instances()
+            for ti in tis:
+                ti.dag_run_id = dr.id
+                session.merge(ti)
+            session.commit()
+
         # connect next following dagrun to correct past
         if last and last.execution_date > dr_start_date:
             dr_next = self.dag.find_next_dagrun(dr_start_date)

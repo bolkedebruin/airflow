@@ -2634,6 +2634,9 @@ class DAG(LoggingMixin):
 
     @provide_session
     def find_previous_dagrun(self, dttm, session=None):
+        """
+        Returns the previous scheduled dag run seen from date
+        """
         DR = DagRun
         previous = session.query(DR).filter_by(dag_id=self.dag_id).filter(
             or_(DR.external_trigger is False,
@@ -2646,6 +2649,9 @@ class DAG(LoggingMixin):
 
     @provide_session
     def find_next_dagrun(self, dttm, session=None):
+        """
+        Returns the next scheduled dag run seen from date
+        """
         DR = DagRun
         dr = session.query(DR).filter_by(dag_id=self.dag_id).filter(
             or_(DR.external_trigger is False,
@@ -2653,6 +2659,20 @@ class DAG(LoggingMixin):
                 ))\
             .filter(DR.execution_date > dttm)\
             .order_by(DR.execution_date.asc()).first()
+
+        return dr
+
+    @provide_session
+    def get_dagrun_by_date(self, dttm, session=None):
+        """
+        Returns the latest dag run for dttm, None if not found
+        """
+        DR = DagRun
+
+        # check: is start_date enough or should we use the primary key
+        dr = session.query(DR).filter_by(dag_id=self.dag_id).filter(
+            DR.execution_date == dttm
+        ).order_by(DR.start_date.desc()).first()
 
         return dr
 
@@ -3402,7 +3422,7 @@ class DagRun(Base):
             self.previous = dr.previous
 
     @provide_session
-    def get_previous_dag_run(self, session):
+    def get_previous_dag_run(self, session=None):
         if not self.previous:
             return None
 
@@ -3413,6 +3433,17 @@ class DagRun(Base):
         ).first()
 
         return dr
+
+    @provide_session
+    def get_task_instances(self, session=None):
+        TI = TaskInstance
+        tis = session.query(TI).filter(
+            TI.dag_id == self.dag_id,
+            TI.execution_date == self.execution_date,
+            TI.dag_run_id == self.id
+        ).all()
+
+        return tis
 
 
 class Pool(Base):

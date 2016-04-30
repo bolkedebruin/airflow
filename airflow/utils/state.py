@@ -31,6 +31,7 @@ class State(object):
     UP_FOR_RETRY = "up_for_retry"
     UPSTREAM_FAILED = "upstream_failed"
     SKIPPED = "skipped"
+    OVERRIDDEN = "overridden"
 
     state_color = {
         QUEUED: 'gray',
@@ -41,6 +42,7 @@ class State(object):
         UP_FOR_RETRY: 'gold',
         UPSTREAM_FAILED: 'orange',
         SKIPPED: 'pink',
+        OVERRIDDEN: 'lightgray',
     }
 
     @classmethod

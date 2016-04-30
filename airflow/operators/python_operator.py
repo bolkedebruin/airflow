@@ -92,10 +92,14 @@ class BranchPythonOperator(PythonOperator):
         logging.info("Following branch " + branch)
         logging.info("Marking other directly downstream tasks as skipped")
         session = settings.Session()
+        # fixme: move this logic to TaskInstance
         for task in context['task'].downstream_list:
             if task.task_id != branch:
                 ti = TaskInstance(
-                    task, execution_date=context['ti'].execution_date)
+                    task,
+                    execution_date=context['ti'].execution_date,
+                    dag_run_id=context['ti'].dag_run_id
+                )
                 ti.state = State.SKIPPED
                 ti.start_date = datetime.now()
                 ti.end_date = datetime.now()
@@ -126,9 +130,13 @@ class ShortCircuitOperator(PythonOperator):
         else:
             logging.info('Skipping downstream tasks...')
             session = settings.Session()
+            # fixme: move this logic to TaskInstance
             for task in context['task'].downstream_list:
                 ti = TaskInstance(
-                    task, execution_date=context['ti'].execution_date)
+                    task,
+                    execution_date=context['ti'].execution_date,
+                    dag_run_id=context['ti'].dag_run_id
+                )
                 ti.state = State.SKIPPED
                 ti.start_date = datetime.now()
                 ti.end_date = datetime.now()

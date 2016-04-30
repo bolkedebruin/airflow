@@ -31,7 +31,12 @@ import sqlalchemy as sa
 
 
 def upgrade():
-    op.add_column('task_instance', sa.Column('dag_run_id', sa.Integer(), nullable=True))
+    op.add_column('task_instance', sa.Column('dag_run_id',
+                                             sa.Integer(),
+                                             nullable=False,
+                                             server_default="-1"))
+    with op.batch_alter_table('task_instance') as batch_op:
+        batch_op.alter_column('dag_run_id', server_default=None)
 
 
 def downgrade():

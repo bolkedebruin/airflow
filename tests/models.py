@@ -200,7 +200,6 @@ class DagBagTest(unittest.TestCase):
 
 
 class TaskInstanceTest(unittest.TestCase):
-
     def test_set_dag(self):
         """
         Test assigning Operators to Dags, including deferred assignment
@@ -297,7 +296,7 @@ class TaskInstanceTest(unittest.TestCase):
                              pool='test_run_pooling_task_pool', owner='airflow',
                              start_date=datetime.datetime(2016, 2, 1, 0, 0, 0))
         ti = TI(
-            task=task, execution_date=datetime.datetime.now())
+            task=task, execution_date=datetime.datetime.now(), dag_run_id=-1)
         ti.run()
         self.assertEqual(ti.state, models.State.QUEUED)
 
@@ -314,7 +313,7 @@ class TaskInstanceTest(unittest.TestCase):
             owner='airflow',
             start_date=datetime.datetime(2016, 2, 1, 0, 0, 0))
         ti = TI(
-            task=task, execution_date=datetime.datetime.now())
+            task=task, execution_date=datetime.datetime.now(), dag_run_id=-1)
         ti.run(mark_success=True)
         self.assertEqual(ti.state, models.State.SUCCESS)
 
@@ -335,7 +334,7 @@ class TaskInstanceTest(unittest.TestCase):
             owner='airflow',
             start_date=datetime.datetime(2016, 2, 1, 0, 0, 0))
         ti = TI(
-            task=task, execution_date=datetime.datetime.now())
+            task=task, execution_date=datetime.datetime.now(), dag_run_id=-1)
         ti.run()
         self.assertTrue(ti.state == models.State.SKIPPED)
 
@@ -344,6 +343,7 @@ class TaskInstanceTest(unittest.TestCase):
         """
         Test that retry delays are respected
         """
+        time.sleep(1)
         dag = models.DAG(dag_id='test_retry_handling')
         task = BashOperator(
             task_id='test_retry_handling_op',
@@ -361,7 +361,7 @@ class TaskInstanceTest(unittest.TestCase):
                 pass
 
         ti = TI(
-            task=task, execution_date=datetime.datetime.now())
+            task=task, execution_date=datetime.datetime.now(), dag_run_id=-1)
 
         # first run -- up for retry
         run_with_error(ti)
@@ -381,6 +381,7 @@ class TaskInstanceTest(unittest.TestCase):
         """
         Test that task retries are handled properly
         """
+        time.sleep(1)
         dag = models.DAG(dag_id='test_retry_handling')
         task = BashOperator(
             task_id='test_retry_handling_op',
@@ -398,7 +399,7 @@ class TaskInstanceTest(unittest.TestCase):
                 pass
 
         ti = TI(
-            task=task, execution_date=datetime.datetime.now())
+            task=task, execution_date=datetime.datetime.now(), dag_run_id=-1)
 
         # first run -- up for retry
         run_with_error(ti)
@@ -549,7 +550,7 @@ class TaskInstanceTest(unittest.TestCase):
             task.set_downstream(downstream)
         run_date = task.start_date + datetime.timedelta(days=5)
 
-        ti = TI(downstream, run_date)
+        ti = TI(downstream, run_date, dag_run_id=-1)
         completed = ti.evaluate_trigger_rule(
             successes=successes, skipped=skipped, failed=failed,
             upstream_failed=upstream_failed, done=done,

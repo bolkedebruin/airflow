@@ -678,6 +678,19 @@ class TaskInstance(Base):
         if state:
             self.state = state
 
+        if dag_run_id == -1:
+            logging.warning("Task {} ({}) for dag {} initialized without a "
+                            "real parent DagRun. This can lead to unknown consequences. "
+                            "Please update your code. Support can be "
+                            "removed in the future"
+                            .format(self.task_id, self.execution_date, self.dag_id))
+
+        elif not dag_run_id:
+            logging.error("Task {} ({}) for dag {} initialized as orphan (no DagRun). "
+                          "Setting the special -1 DagRun ID. This will be removed in "
+                          "Airflow 2.0")
+            self.dag_run_id = -1
+
     def command(
             self,
             mark_success=False,
@@ -1144,6 +1157,8 @@ class TaskInstance(Base):
         self.hostname = socket.gethostname()
         self.operator = task.__class__.__name__
 
+        logging.debug("Running task: {} for dag_id {} and dag_run_id {}"
+                      .format(self.task_id, self.dag_id, self.dag_run_id))
         if self.state == State.RUNNING:
             logging.warning("Another instance is running, skipping.")
         elif not force and self.state == State.SUCCESS:

@@ -29,6 +29,7 @@ from past.builtins import basestring
 
 import inspect
 import traceback
+import logging
 
 import sqlalchemy as sqla
 from sqlalchemy import or_, desc, and_
@@ -1112,13 +1113,16 @@ class Airflow(BaseView):
             TI.execution_date.in_(dates),
             TI.task_id.in_(task_ids),
             TI.state != State.SUCCESS).all()
-        tasks = list(product(task_ids, dates))
+        # fixme: what to do with the dag_run_id here
+        tasks = list(product(task_ids, dates, [-1, ]))
         tis_to_create = list(
             set(tasks) -
-            set([(ti.task_id, ti.execution_date) for ti in tis]))
+            set([(ti.task_id, ti.execution_date, ti.dag_run_id) for ti in tis]))
+
+        logging.debug("Tis to create: {} (tis: {})".format(tis_to_create, tis))
 
         tis_all_altered = list(chain(
-            [(ti.task_id, ti.execution_date) for ti in tis_to_change],
+            [(ti.task_id, ti.execution_date, ti.dag_run_id) for ti in tis_to_change],
             tis_to_create))
 
         if len(tis_all_altered) > MAX_PERIODS:
@@ -1131,10 +1135,11 @@ class Airflow(BaseView):
                 ti.state = State.SUCCESS
             session.commit()
 
-            for task_id, task_execution_date in tis_to_create:
+            for task_id, task_execution_date, dag_run_id in tis_to_create:
                 ti = TI(
                     task=dag.get_task(task_id),
                     execution_date=task_execution_date,
+                    dag_run_id=dag_run_id,
                     state=State.SUCCESS)
                 session.add(ti)
                 session.commit()
@@ -1151,10 +1156,11 @@ class Airflow(BaseView):
                 response = redirect(origin)
             else:
                 tis = []
-                for task_id, task_execution_date in tis_all_altered:
+                for task_id, task_execution_date, dag_run_id in tis_all_altered:
                     tis.append(TI(
                         task=dag.get_task(task_id),
                         execution_date=task_execution_date,
+                        dag_run_id=dag_run_id,
                         state=State.SUCCESS))
                 details = "\n".join([str(t) for t in tis])
 

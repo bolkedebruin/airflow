@@ -1033,6 +1033,7 @@ class TaskInstance(Base):
             dag_run = self.dag_run
             if dag_run and dag_run.previous:
                 logging.debug("Found previous dag run")
+                # todo: check on task level or dag run?
                 previous_run = dag_run.get_previous_dag_run()
                 if previous_run.state not in (State.SUCCESS, State.SKIPPED):
                     logging.debug("depends_on_past not satisfied")
@@ -2621,13 +2622,30 @@ class DAG(LoggingMixin):
     @provide_session
     def last_scheduled_dagrun(self, session=None):
         """
-        Returns the last scheduled dag run for this dag, None if there was none
+        Returns the last scheduled dag run for this dag, None if there was none.
+        Overriden DagRuns are also considered.
         """
         DR = DagRun
         last = session.query(DR).filter_by(dag_id=self.dag_id).filter(
-            or_(DR.external_trigger is False,
+            or_(DR.external_trigger == False,
                 DR.run_id.like(DR.ID_PREFIX+'%')
                 )
+        ).order_by(DR.execution_date.desc()).first()
+
+        return last
+
+    @property
+    @provide_session
+    def last_dagrun(self, session=None):
+        """
+        Returns the last dag run for this dag, None if there was none.
+        Last dag run can be any type of run eg. scheduled or backfilled.
+        Overriden DagRuns are ignored
+        """
+        DR = DagRun
+        last = session.query(DR).filter(
+            DR.dag_id == self.dag_id,
+            DR.external_trigger == False
         ).order_by(DR.execution_date.desc()).first()
 
         return last
@@ -2639,10 +2657,11 @@ class DAG(LoggingMixin):
         """
         DR = DagRun
         previous = session.query(DR).filter_by(dag_id=self.dag_id).filter(
-            or_(DR.external_trigger is False,
+            or_(DR.external_trigger == False,
                 DR.run_id.like(DR.ID_PREFIX+'%')
                 ))\
             .filter(DR.execution_date < dttm)\
+            .filter(DR.state != State.OVERRIDDEN)\
             .order_by(DR.execution_date.desc()).first()
 
         return previous
@@ -2654,7 +2673,7 @@ class DAG(LoggingMixin):
         """
         DR = DagRun
         dr = session.query(DR).filter_by(dag_id=self.dag_id).filter(
-            or_(DR.external_trigger is False,
+            or_(DR.external_trigger == False,
                 DR.run_id.like(DR.ID_PREFIX+'%')
                 ))\
             .filter(DR.execution_date > dttm)\

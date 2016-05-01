@@ -35,6 +35,7 @@ configuration.test_mode()
 DEV_NULL = '/dev/null'
 DEFAULT_DATE = datetime.datetime(2016, 1, 1)
 
+
 class BackfillJobTest(unittest.TestCase):
 
     def setUp(self):

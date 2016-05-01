@@ -418,9 +418,12 @@ class SchedulerJob(BaseJob):
             session.commit()
 
             # check last scheduled run
+            previous_run_id = None
             previous = dag.last_scheduled_dagrun
             if previous:
-                self.logger.debug("Previous run {}".format(previous.execution_date))
+                self.logger.debug("Previous scheduled run {}"
+                                  .format(previous.execution_date))
+                previous_run_id = previous.id
 
             # Determine next run date
             next_run_date = None
@@ -443,6 +446,16 @@ class SchedulerJob(BaseJob):
                     next_run_date = None
             elif dag.schedule_interval != '@once':
                 next_run_date = dag.following_schedule(previous.execution_date)
+
+            # check last run (eg. can be backfill) can also be previous
+            # update next_run_date if required
+            last_run = dag.last_dagrun
+            if last_run:
+                self.logger.debug("Checking last run execution date")
+                if next_run_date:
+                    previous_run_id = last_run.id
+                    while next_run_date < last_run.execution_date:
+                        next_run_date = dag.following_schedule(next_run_date)
 
             # don't ever schedule prior to the dag's start_date
             # this can happen if the tasks have a start date that
@@ -481,7 +494,7 @@ class SchedulerJob(BaseJob):
                     start_date=datetime.now(),
                     state=State.RUNNING,
                     external_trigger=False,
-                    previous=previous.id if previous else None,
+                    previous=previous_run_id,
                 )
                 session.add(next_run)
                 session.commit()
@@ -883,12 +896,17 @@ class BackfillJob(BaseJob):
         # Create a DagRun for this
         dr_start_date = start_date or min([t.start_date for t in self.dag.tasks])
 
-        # see if there is a previous dag run
-        previous = last = self.dag.last_scheduled_dagrun
+        # see if there is a previous dag run (scheduled or backfilled)
+        previous = last = self.dag.last_dagrun
 
         if last and last.execution_date > dr_start_date:
             previous = self.dag.find_previous_dagrun(dr_start_date)
             self.logger.debug("Found previous dag_run {}".format(previous))
+
+        # find out if there was a dagrun with the same execution date for this dag
+        # if so change its tasks to point to this run
+        # todo: should we consider bailing out if the state is running? (really running)
+        twin = self.dag.get_dagrun_by_date(dr_start_date)
 
         dr = models.DagRun(
             dag_id=self.dag.dag_id,
@@ -903,17 +921,18 @@ class BackfillJob(BaseJob):
         session.commit()
         dr.refresh_from_db()
 
-        # find out if there was a dagrun with the same execution date for this dag
-        # if so change its tasks to point to this run
-        twin = self.dag.get_dagrun_by_date(dr_start_date)
+        # override if we are re-running
         if twin:
-            twin.state = state.OVERRIDDEN
+            twin.state = State.OVERRIDDEN
+            dr.previous = twin.previous
+            session.merge(dr)
             session.merge(twin)
+            session.commit()
             tis = twin.get_task_instances()
             for ti in tis:
                 ti.dag_run_id = dr.id
                 session.merge(ti)
-            session.commit()
+                session.commit()
 
         # connect next following dagrun to correct past
         if last and last.execution_date > dr_start_date:

@@ -1033,11 +1033,23 @@ class TaskInstance(Base):
             dag_run = self.dag_run
             if dag_run and dag_run.previous:
                 logging.debug("Found previous dag run")
-                # todo: check on task level or dag run?
+                # todo: check on task level or dag run or both?
                 previous_run = dag_run.get_previous_dag_run()
-                if previous_run.state not in (State.SUCCESS, State.SKIPPED):
-                    logging.debug("depends_on_past not satisfied")
+                prev_task = previous_run.get_task_instance(self.task_id)
+                if prev_task and prev_task.state not in (State.SUCCESS, State.SKIPPED):
+                    logging.debug("depends_on_past not satisfied on task level")
                     return False
+                # fixme: the following is a workaround for schedule_dag scheduling
+                # DagRuns but not necessarily the TaskInstances
+                elif not prev_task \
+                        and previous_run.state not in (State.SUCCESS, State.SKIPPED):
+                    logging.debug("depend_on_past and found failed or unfinished "
+                                  "previous dagrun but no previous task. Will NOT run")
+                    return False
+                elif not prev_task \
+                        and previous_run.state in (State.SUCCESS, State.SKIPPED):
+                    logging.debug("depend_on_past and found finished previous dagrun "
+                                  "but no previous task. Assuming added task")
 
             # todo: is this still the right logic?
             previous_ti = session.query(TI).filter(
@@ -3463,6 +3475,18 @@ class DagRun(Base):
         ).all()
 
         return tis
+
+    @provide_session
+    def get_task_instance(self, task_id, session=None):
+        TI = TaskInstance
+        ti = session.query(TI).filter(
+            TI.dag_id == self.dag_id,
+            TI.execution_date == self.execution_date,
+            TI.dag_run_id == self.id,
+            TI.task_id == task_id
+        ).first()
+
+        return ti
 
 
 class Pool(Base):

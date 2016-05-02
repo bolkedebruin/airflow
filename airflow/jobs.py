@@ -565,6 +565,10 @@ class SchedulerJob(BaseJob):
             self.logger.debug("Opening task {} for dag_run_id {}".
                               format(ti.key, dag_run.id))
             ti.refresh_from_db()
+
+            # make sure the task instances are available in the db
+            session.merge(ti)
+            session.commit()
             if ti.state in (
                     State.RUNNING, State.QUEUED, State.SUCCESS, State.FAILED):
                 continue

@@ -300,7 +300,7 @@ class SchedulerJobTest(unittest.TestCase):
                 'test_depends_on_past': None,
                 'test_depends_on_past_2': None,
             },
-            dagrun_state=State.FAILED,
+            dagrun_state=State.RUNNING,
             advance_execution_date=True)
 
     def test_scheduler_pooled_tasks(self):

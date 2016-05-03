@@ -690,7 +690,6 @@ class TaskInstance(Base):
                           "Setting the special -1 DagRun ID. This will be removed in "
                           "Airflow 2.0"
                           .format(self.task_id, self.execution_date, self.dag_id))
-            raise AirflowException()
             self.dag_run_id = -1
 
     def command(

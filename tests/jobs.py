@@ -223,6 +223,7 @@ class SchedulerJobTest(unittest.TestCase):
             # run a second time to schedule a dagrun after the start_date
             dr = scheduler.schedule_dag(dag)
         ex_date = dr.execution_date
+        dr.refresh_from_db()
 
         try:
             dag.run(start_date=ex_date, end_date=ex_date, **run_kwargs)
@@ -232,7 +233,7 @@ class SchedulerJobTest(unittest.TestCase):
         # test tasks
         for task_id, expected_state in expected_task_states.items():
             task = dag.get_task(task_id)
-            ti = TI(task, ex_date)
+            ti = TI(task, ex_date, dag_run_id=dr.id)
             ti.refresh_from_db()
             self.assertEqual(ti.state, expected_state)
 

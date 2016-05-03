@@ -388,6 +388,8 @@ class SchedulerJob(BaseJob):
         self.logger.debug("Scheduling dag: {} Schedule interval:{}"
                           .format(dag.dag_id, dag.schedule_interval))
 
+        TI = models.TaskInstance
+
         # todo: reverse check to simplify logic
         if dag.schedule_interval:
             # Get dags that are currently running
@@ -498,7 +500,19 @@ class SchedulerJob(BaseJob):
                 )
                 session.add(next_run)
                 session.commit()
-                self.logger.debug("Done")
+                next_run.refresh_from_db()
+                self.logger.debug("Created dag run")
+
+                for task in dag.tasks:
+                    # todo: check this
+                    if task.adhoc:
+                        continue
+
+                    ti = TI(task, next_run.execution_date, dag_run_id=next_run.id)
+                    session.add(ti)
+                    session.commit()
+
+                self.logger.debug("Done adding tasks")
                 return next_run
 
     def process_dag(self, dag, queue):
@@ -567,8 +581,8 @@ class SchedulerJob(BaseJob):
             ti.refresh_from_db()
 
             # make sure the task instances are available in the db
-            session.merge(ti)
-            session.commit()
+            # session.merge(ti)
+            # session.commit()
             if ti.state in (
                     State.RUNNING, State.QUEUED, State.SUCCESS, State.FAILED):
                 continue

@@ -688,7 +688,9 @@ class TaskInstance(Base):
         elif not dag_run_id:
             logging.error("Task {} ({}) for dag {} initialized as orphan (no DagRun). "
                           "Setting the special -1 DagRun ID. This will be removed in "
-                          "Airflow 2.0")
+                          "Airflow 2.0"
+                          .format(self.task_id, self.execution_date, self.dag_id))
+            raise AirflowException()
             self.dag_run_id = -1
 
     def command(
@@ -1049,7 +1051,7 @@ class TaskInstance(Base):
                 elif not prev_task \
                         and previous_run.state in (State.SUCCESS, State.SKIPPED):
                     logging.debug("depend_on_past and found finished previous dagrun "
-                                  "but no previous task. Assuming added task")
+                                  "but no previous task. Assuming added task. Running")
 
             # todo: is this still the right logic?
             previous_ti = session.query(TI).filter(
@@ -2780,7 +2782,6 @@ class DAG(LoggingMixin):
             ]
 
             if len(tis) == len(self.active_tasks):
-
                 # if any roots failed, the run failed
                 root_ids = [t.task_id for t in self.roots]
                 roots = [t for t in tis if t.task_id in root_ids]

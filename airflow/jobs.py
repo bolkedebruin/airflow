@@ -1138,7 +1138,6 @@ class BackfillJob(BaseJob):
             self.logger.info(msg)
 
         executor.end()
-        session.close()
 
         err = ''
         if failed:
@@ -1167,7 +1166,9 @@ class BackfillJob(BaseJob):
             raise AirflowException(err)
 
         dr.state = State.SUCCESS
+        session.merge(dr)
         session.commit()
+        session.close()
 
         self.logger.info("Backfill done. Exiting.")
         self.logger.debug("Done _execute")

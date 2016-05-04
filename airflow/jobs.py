@@ -627,7 +627,7 @@ class SchedulerJob(BaseJob):
 
         Used to identify queued tasks and schedule them for further processing.
         """
-        self.logging.debug("Processing events for executor {} ".format(list(executor.get_event_buffer().items())))
+        self.logger.debug("Processing events for executor {} ".format(list(executor.get_event_buffer().items())))
         for key, executor_state in list(executor.get_event_buffer().items()):
             self.logger.debug("Checking key {} with executor state {}".format(key, executor_state))
             dag_id, task_id, execution_date = key

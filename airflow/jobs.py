@@ -1162,6 +1162,7 @@ class BackfillJob(BaseJob):
             err += ' These tasks were unable to run:\n{}\n'.format(deadlocked)
         if err:
             dr.state = State.FAILED
+            session.merge(dr)
             session.commit()
             raise AirflowException(err)
 

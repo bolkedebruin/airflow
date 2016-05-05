@@ -791,16 +791,25 @@ class TaskInstance(Base):
         session.commit()
 
     @provide_session
-    def refresh_from_db(self, session=None):
+    def refresh_from_db(self, session=None, lock_for_update=False):
         """
         Refreshes the task instance from the database based on the primary key
         """
         TI = TaskInstance
-        ti = session.query(TI).filter(
-            TI.dag_id == self.dag_id,
-            TI.task_id == self.task_id,
-            TI.execution_date == self.execution_date,
-        ).first()
+
+        if lock_for_update:
+            ti = session.query(TI).filter(
+                TI.dag_id == self.dag_id,
+                TI.task_id == self.task_id,
+                TI.execution_date == self.execution_date,
+            ).with_for_update().first()
+        else:
+            ti = session.query(TI).filter(
+                TI.dag_id == self.dag_id,
+                TI.task_id == self.task_id,
+                TI.execution_date == self.execution_date,
+            ).first()
+
         if ti:
             self.state = ti.state
             self.start_date = ti.start_date
@@ -1164,7 +1173,8 @@ class TaskInstance(Base):
         self.pool = pool or task.pool
         self.test_mode = test_mode
         self.force = force
-        self.refresh_from_db()
+        # make sure we are the only one changing this task
+        self.refresh_from_db(session=session, lock_for_update=True)
         self.clear_xcom_data()
         self.job_id = job_id
         iso = datetime.now().isoformat()

@@ -3495,6 +3495,7 @@ class Pool(Base):
     id = Column(Integer, primary_key=True)
     pool = Column(String(50), unique=True)
     slots = Column(Integer, default=0)
+    slots_in_use = Column(Integer, default=0)
     description = Column(Text)
 
     def __repr__(self):
@@ -3519,14 +3520,9 @@ class Pool(Base):
         """
         Returns the number of slots used at the moment
         """
-        return (
-            session
-            .query(TaskInstance)
-            .filter(TaskInstance.pool == self.pool)
-            .filter(TaskInstance.state == State.QUEUED)
-            .count()
-        )
-
+        pool = session.query(Pool).filter(Pool.id == self.id)
+        return pool.slots_in_use
+        
     @provide_session
     def open_slots(self, session):
         """
@@ -3534,6 +3530,43 @@ class Pool(Base):
         """
         used_slots = self.used_slots(session=session)
         return self.slots - used_slots
+
+    @provide_session
+    def obtain_slot(self, session=None):
+        # with_for_update is key here to make sure
+        # we don't get a race condition
+        pool = session.query(
+            Pool
+        ).with_for_update().filter(Pool==self.id)
+
+        in_use = pool.slots_in_use + 1
+        if in_use > self.slots:
+            session.commit()
+            return None
+
+        pool.slots_in_use = in_use
+        session.merge(pool)
+        session.commit()
+
+        return in_use
+
+    @provide_session
+    def release_slot(self, session=None):
+        # with_for_update is key here to make sure
+        # we don't get a race condition
+        pool = session.query(
+            Pool
+        ).with_for_update().filter(Pool==self.id)
+
+        in_use = pool.slots_in_use - 1
+        if in_use < 0:
+            logging.warning("Tried to update pool {} slots below 0"
+                            .format(self.pool.pool))
+            session.commit()
+            return
+
+        pool.slots_in_use = in_use
+        session.merge(pool)
 
 
 class SlaMiss(Base):

@@ -478,11 +478,20 @@ class SchedulerJob(BaseJob):
             elif next_run_date:
                 schedule_end = dag.following_schedule(next_run_date)
 
-            # Don't schedule beyond end date of the dag
+            # Don't schedule a dag beyond its end_date (as specified by the dag param)
             if next_run_date and dag.end_date and next_run_date > dag.end_date:
                 self.logger.debug("Not scheduling dag as "
                                   "next_run_date {} > dag.end_date {}"
                                   .format(next_run_date, dag.end_date))
+                return
+
+            # Don't schedule a dag beyond its end_date (as specified by the task params)
+            # Get the min task end date, which may come from the dag.default_args
+            min_task_end_date = []
+            task_end_dates = [t.end_date for t in dag.tasks if t.end_date]
+            if task_end_dates:
+                min_task_end_date = min(task_end_dates)
+            if next_run_date and min_task_end_date and next_run_date > min_task_end_date:
                 return
 
             if next_run_date and schedule_end and schedule_end <= datetime.now():
@@ -786,15 +795,17 @@ class SchedulerJob(BaseJob):
                 self.logger.info("Starting {} scheduler jobs".format(len(jobs)))
                 for j in jobs:
                     j.start()
+
+                while any(j.is_alive() for j in jobs):
+                    while not tis_q.empty():
+                        ti_key, pickle_id = tis_q.get()
+                        dag = dagbag.dags[ti_key[0]]
+                        task = dag.get_task(ti_key[1])
+                        ti = TI(task, ti_key[2])
+                        self.executor.queue_task_instance(ti, pickle_id=pickle_id)
+
                 for j in jobs:
                     j.join()
-
-                while not tis_q.empty():
-                    ti_key, dag_run_id, pickle_id = tis_q.get()
-                    dag = dagbag.dags[ti_key[0]]
-                    task = dag.get_task(ti_key[1])
-                    ti = TI(task, ti_key[2], dag_run_id=dag_run_id)
-                    self.executor.queue_task_instance(ti, pickle_id=pickle_id)
 
                 self.logger.info("Done queuing tasks, calling the executor's "
                               "heartbeat")

@@ -650,7 +650,7 @@ class CliTests(unittest.TestCase):
             dag_folder=DEV_NULL, include_examples=True)
 
     def test_cli_list_dags(self):
-        args = self.parser.parse_args(['list_dags'])
+        args = self.parser.parse_args(['list_dags', '--report'])
         cli.list_dags(args)
 
     def test_cli_list_tasks(self):
@@ -853,6 +853,19 @@ class WebUiTests(unittest.TestCase):
             'execution_date={}&'
             'origin=/admin'.format(DEFAULT_DATE_DS))
         assert "Wait a minute" in response.data.decode('utf-8')
+        url = (
+            "/admin/airflow/success?task_id=section-1&"
+            "dag_id=example_subdag_operator&upstream=true&downstream=true&"
+            "recursive=true&future=false&past=false&execution_date={}&"
+            "origin=/admin".format(DEFAULT_DATE_DS))
+        response = self.app.get(url)
+        assert "Wait a minute" in response.data.decode('utf-8')
+        assert "section-1-task-1" in response.data.decode('utf-8')
+        assert "section-1-task-2" in response.data.decode('utf-8')
+        assert "section-1-task-3" in response.data.decode('utf-8')
+        assert "section-1-task-4" in response.data.decode('utf-8')
+        assert "section-1-task-5" in response.data.decode('utf-8')
+        response = self.app.get(url + "&confirmed=true")
         url = (
             "/admin/airflow/clear?task_id=runme_1&"
             "dag_id=example_bash_operator&future=false&past=false&"

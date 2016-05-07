@@ -27,9 +27,10 @@ import socket
 import subprocess
 import multiprocessing
 import math
+import uuid
 from time import sleep
 
-from sqlalchemy import Column, Integer, String, DateTime, func, Index, or_
+from sqlalchemy import Column, Integer, String, DateTime, func, Index
 from sqlalchemy.orm.session import make_transient
 
 from airflow import executors, models, settings
@@ -238,7 +239,6 @@ class SchedulerJob(BaseJob):
 
         self.refresh_dags_every = refresh_dags_every
         self.do_pickle = do_pickle
-        self.queued_tis = set()
         super(SchedulerJob, self).__init__(*args, **kwargs)
 
         self.heartrate = conf.getint('scheduler', 'SCHEDULER_HEARTBEAT_SEC')
@@ -384,7 +384,14 @@ class SchedulerJob(BaseJob):
         for a DAG based on scheduling interval
         Returns DagRun if one is scheduled. Otherwise returns None.
         """
+        self.logger.debug("Scheduling dag: {} Schedule interval:{}"
+                          .format(dag.dag_id, dag.schedule_interval))
+
+        TI = models.TaskInstance
+
+        # todo: reverse check to simplify logic
         if dag.schedule_interval:
+            # Get dags that are currently running
             DagRun = models.DagRun
             session = settings.Session()
             qry = session.query(DagRun).filter(
@@ -393,8 +400,16 @@ class SchedulerJob(BaseJob):
                 DagRun.state == State.RUNNING,
             )
             active_runs = qry.all()
+
+            # Don't allow more runs than dag max runs
             if len(active_runs) >= dag.max_active_runs:
+                self.logger.info("The count of active runs ({}) for "
+                                 "dag {} is above the threshold of {}"
+                                 .format(active_runs, dag.dag_id, dag.max_active_runs))
                 return
+
+            # check if certain runs are beyond their timeout
+            # todo: could be in in one sql statement
             for dr in active_runs:
                 if (
                         dr.start_date and dag.dagrun_timeout and
@@ -403,39 +418,58 @@ class SchedulerJob(BaseJob):
                     dr.end_date = datetime.now()
             session.commit()
 
-            qry = session.query(func.max(DagRun.execution_date)).filter_by(
-                    dag_id = dag.dag_id).filter(
-                        or_(DagRun.external_trigger == False,
-                            # add % as a wildcard for the like query
-                            DagRun.run_id.like(DagRun.ID_PREFIX+'%')))
-            last_scheduled_run = qry.scalar()
+            # check last scheduled run
+            previous_run_id = None
+            previous = dag.last_scheduled_dagrun
+            if previous:
+                self.logger.debug("Previous scheduled run {}"
+                                  .format(previous.execution_date))
+                previous_run_id = previous.id
+
+            # Determine next run date
             next_run_date = None
-            if dag.schedule_interval == '@once' and not last_scheduled_run:
+            if dag.schedule_interval == '@once' and not previous:
                 next_run_date = datetime.now()
-            elif not last_scheduled_run:
+            elif not previous:
                 # First run
-                TI = models.TaskInstance
-                latest_run = (
-                    session.query(func.max(TI.execution_date))
-                    .filter_by(dag_id=dag.dag_id)
-                    .scalar()
-                )
-                if latest_run:
-                    # Migrating from previous version
-                    # make the past 5 runs active
-                    next_run_date = dag.date_range(latest_run, -5)[0]
+                self.logger.debug("Scheduling {} for the first time".format(dag.dag_id))
+
+                # Set start_date based on tasks
+                task_start_dates = [t.start_date for t in dag.tasks]
+                if task_start_dates:
+                    # set next_run_date to start_date + interval unless start date
+                    # is on the interval
+                    min_task_start_date = min(task_start_dates)
+                    next_run_date = dag.normalize_schedule(min_task_start_date)
+                    self.logger.debug("Next run date based on tasks {}"
+                                      .format(next_run_date))
                 else:
-                    task_start_dates = [t.start_date for t in dag.tasks]
-                    if task_start_dates:
-                        next_run_date = min(task_start_dates)
-                    else:
-                        next_run_date = None
+                    next_run_date = None
             elif dag.schedule_interval != '@once':
-                next_run_date = dag.following_schedule(last_scheduled_run)
+                next_run_date = dag.following_schedule(previous.execution_date)
+
+            # check last run (eg. can be backfill) can also be previous
+            # update next_run_date if required
+            last_run = dag.last_dagrun
+            if last_run:
+                self.logger.debug("Checking last run execution date")
+                if next_run_date:
+                    previous_run_id = last_run.id
+                    while next_run_date < last_run.execution_date:
+                        next_run_date = dag.following_schedule(next_run_date)
 
             # don't ever schedule prior to the dag's start_date
+            # this can happen if the tasks have a start date that
+            # is before the dag start date
             if dag.start_date:
                 next_run_date = dag.start_date if not next_run_date else max(next_run_date, dag.start_date)
+                if next_run_date == dag.start_date:
+                    next_run_date = dag.normalize_schedule(dag.start_date)
+
+                self.logger.debug("Dag start date: {}. Next run date: {}"
+                                  .format(dag.start_date, next_run_date))
+
+            self.logger.debug("Final next_run_date: {}".format(next_run_date))
 
             # this structure is necessary to avoid a TypeError from concatenating
             # NoneType
@@ -446,6 +480,9 @@ class SchedulerJob(BaseJob):
 
             # Don't schedule a dag beyond its end_date (as specified by the dag param)
             if next_run_date and dag.end_date and next_run_date > dag.end_date:
+                self.logger.debug("Not scheduling dag as "
+                                  "next_run_date {} > dag.end_date {}"
+                                  .format(next_run_date, dag.end_date))
                 return
 
             # Don't schedule a dag beyond its end_date (as specified by the task params)
@@ -458,16 +495,32 @@ class SchedulerJob(BaseJob):
                 return
 
             if next_run_date and schedule_end and schedule_end <= datetime.now():
+                self.logger.debug("Scheduling dag on next_run_date: {} (previous id: {})"
+                                  .format(next_run_date, previous.id if previous else None))
                 next_run = DagRun(
                     dag_id=dag.dag_id,
                     run_id='scheduled__' + next_run_date.isoformat(),
                     execution_date=next_run_date,
                     start_date=datetime.now(),
                     state=State.RUNNING,
-                    external_trigger=False
+                    external_trigger=False,
+                    previous=previous_run_id,
                 )
                 session.add(next_run)
                 session.commit()
+                next_run.refresh_from_db()
+                self.logger.debug("Created dag run")
+
+                for task in dag.tasks:
+                    # todo: check this
+                    if task.adhoc:
+                        continue
+
+                    ti = TI(task, next_run.execution_date)
+                    session.add(ti)
+                    session.commit()
+
+                self.logger.debug("Done adding tasks")
                 return next_run
 
     def process_dag(self, dag, queue):
@@ -504,38 +557,47 @@ class SchedulerJob(BaseJob):
             db_dag.last_scheduler_run = datetime.now()
             session.commit()
 
-        active_runs = dag.get_active_runs()
+        active_dag_runs = dag.get_active_runs()
+        active_dates = [run.execution_date for run in active_dag_runs]
+
+        self.logger.debug("{} active runs for dag {}".format(active_dag_runs, dag.dag_id))
 
         self.logger.info('Getting list of tasks to skip for active runs.')
         skip_tis = set()
-        if active_runs:
+        if active_dag_runs:
             qry = (
                 session.query(TI.task_id, TI.execution_date)
                 .filter(
                     TI.dag_id == dag.dag_id,
-                    TI.execution_date.in_(active_runs),
+                    TI.execution_date.in_(active_dates),
                     TI.state.in_((State.RUNNING, State.SUCCESS, State.FAILED)),
                 )
             )
             skip_tis = {(ti[0], ti[1]) for ti in qry.all()}
 
-        descartes = [obj for obj in product(dag.tasks, active_runs)]
+        descartes = [obj for obj in product(dag.tasks, active_dag_runs)]
         could_not_run = set()
         self.logger.info('Checking dependencies on {} tasks instances, minus {} '
                      'skippable ones'.format(len(descartes), len(skip_tis)))
 
-        for task, dttm in descartes:
-            if task.adhoc or (task.task_id, dttm) in skip_tis:
+        for task, dag_run in descartes:
+            if task.adhoc or (task.task_id, dag_run.execution_date) in skip_tis:
                 continue
-            ti = TI(task, dttm)
-
+            ti = TI(task, dag_run.execution_date, dag_run_id=dag_run.id)
+            self.logger.debug("Opening task {} for dag_run_id {}".
+                              format(ti.key, dag_run.id))
             ti.refresh_from_db()
+
+            # make sure the task instances are available in the db
+            # session.merge(ti)
+            # session.commit()
             if ti.state in (
                     State.RUNNING, State.QUEUED, State.SUCCESS, State.FAILED):
                 continue
             elif ti.is_runnable(flag_upstream_failed=True):
                 self.logger.debug('Queuing task: {}'.format(ti))
-                queue.put((ti.key, pickle_id))
+                # todo: make key use dag_run_id
+                queue.put((ti.key, ti.dag_run_id, pickle_id))
             else:
                 could_not_run.add(ti)
 
@@ -549,7 +611,7 @@ class SchedulerJob(BaseJob):
                 .filter(
                     models.DagRun.dag_id == dag.dag_id,
                     models.DagRun.state == State.RUNNING,
-                    models.DagRun.execution_date.in_(active_runs))
+                    models.DagRun.execution_date.in_(active_dates))
                 .update(
                     {models.DagRun.state: State.FAILED},
                     synchronize_session='fetch'))
@@ -567,47 +629,22 @@ class SchedulerJob(BaseJob):
 
         session.close()
 
-    def process_events(self, executor, dagbag):
-        """
-        Respond to executor events.
-
-        Used to identify queued tasks and schedule them for further processing.
-        """
-        for key, executor_state in list(executor.get_event_buffer().items()):
-            dag_id, task_id, execution_date = key
-            if dag_id not in dagbag.dags:
-                self.logger.error(
-                    'Executor reported a dag_id that was not found in the '
-                    'DagBag: {}'.format(dag_id))
-                continue
-            elif not dagbag.dags[dag_id].has_task(task_id):
-                self.logger.error(
-                    'Executor reported a task_id that was not found in the '
-                    'dag: {} in dag {}'.format(task_id, dag_id))
-                continue
-            task = dagbag.dags[dag_id].get_task(task_id)
-            ti = models.TaskInstance(task, execution_date)
-            ti.refresh_from_db()
-
-            if executor_state == State.SUCCESS:
-                # collect queued tasks for prioritiztion
-                if ti.state == State.QUEUED:
-                    self.queued_tis.add(ti)
-            else:
-                # special instructions for failed executions could go here
-                pass
-
     @provide_session
     def prioritize_queued(self, session, executor, dagbag):
         # Prioritizing queued task instances
 
         pools = {p.pool: p for p in session.query(models.Pool).all()}
-
+        TI = models.TaskInstance
+        queued_tis = (
+                         session.query(TI)
+                         .filter(TI.state == State.QUEUED)
+                         .all()
+        )
         self.logger.info(
-            "Prioritizing {} queued jobs".format(len(self.queued_tis)))
+            "Prioritizing {} queued jobs".format(len(queued_tis)))
         session.expunge_all()
         d = defaultdict(list)
-        for ti in self.queued_tis:
+        for ti in queued_tis:
             if ti.dag_id not in dagbag.dags:
                 self.logger.info(
                     "DAG no longer in dagbag, deleting {}".format(ti))
@@ -620,8 +657,6 @@ class SchedulerJob(BaseJob):
                 session.commit()
             else:
                 d[ti.pool].append(ti)
-
-        self.queued_tis.clear()
 
         dag_blacklist = set(dagbag.paused_dags())
         for pool, tis in list(d.items()):
@@ -721,7 +756,6 @@ class SchedulerJob(BaseJob):
             try:
                 loop_start_dttm = datetime.now()
                 try:
-                    self.process_events(executor=executor, dagbag=dagbag)
                     self.prioritize_queued(executor=executor, dagbag=dagbag)
                 except Exception as e:
                     self.logger.exception(e)
@@ -839,10 +873,12 @@ class BackfillJob(BaseJob):
         """
         Runs a dag for a specified date range.
         """
+        self.logger.debug("Start _execute")
         session = settings.Session()
 
         start_date = self.bf_start_date
         end_date = self.bf_end_date
+        run_id = 'backfill__' + str(uuid.uuid4())
 
         # picklin'
         pickle_id = None
@@ -856,6 +892,55 @@ class BackfillJob(BaseJob):
         executor = self.executor
         executor.start()
         executor_fails = Counter()
+
+        # Create a DagRun for this
+        dr_start_date = start_date or min([t.start_date for t in self.dag.tasks])
+
+        # see if there is a previous dag run (scheduled or backfilled)
+        previous = last = self.dag.last_dagrun
+
+        if last and last.execution_date > dr_start_date:
+            previous = self.dag.find_previous_dagrun(dr_start_date)
+            self.logger.debug("Found previous dag_run {}".format(previous))
+
+        # find out if there was a dagrun with the same execution date for this dag
+        # if so change its tasks to point to this run
+        # todo: should we consider bailing out if the state is running? (really running)
+        twin = self.dag.get_dagrun_by_date(dr_start_date)
+
+        dr = models.DagRun(
+            dag_id=self.dag.dag_id,
+            run_id=run_id,
+            execution_date=dr_start_date,
+            start_date=datetime.now(),
+            state=State.RUNNING,
+            external_trigger=False,
+            previous=previous.id if previous else None
+        )
+        session.add(dr)
+        session.commit()
+        dr.refresh_from_db()
+
+        # override if we are re-running
+        if twin:
+            twin.state = State.OVERRIDDEN
+            dr.previous = twin.previous
+            session.merge(dr)
+            session.merge(twin)
+            session.commit()
+            tis = twin.get_task_instances()
+            for ti in tis:
+                ti.dag_run_id = dr.id
+                session.merge(ti)
+                session.commit()
+
+        # connect next following dagrun to correct past
+        if last and last.execution_date > dr_start_date:
+            dr_next = self.dag.find_next_dagrun(dr_start_date)
+            dr_next.previous = dr.id
+            self.logger.debug("Updating previous to id {}".format(dr.id))
+            session.merge(dr_next)
+            session.commit()
 
         # Build a list of all instances to run
         tasks_to_run = {}
@@ -873,7 +958,7 @@ class BackfillJob(BaseJob):
             start_date = start_date or task.start_date
             end_date = end_date or task.end_date or datetime.now()
             for dttm in self.dag.date_range(start_date, end_date=end_date):
-                ti = models.TaskInstance(task, dttm)
+                ti = models.TaskInstance(task, dttm, dag_run_id=dr.id)
                 tasks_to_run[ti.key] = ti
                 session.merge(ti)
         session.commit()
@@ -1032,7 +1117,6 @@ class BackfillJob(BaseJob):
             self.logger.info(msg)
 
         executor.end()
-        session.close()
 
         err = ''
         if failed:
@@ -1056,9 +1140,18 @@ class BackfillJob(BaseJob):
                     'the command line.')
             err += ' These tasks were unable to run:\n{}\n'.format(deadlocked)
         if err:
+            dr.state = State.FAILED
+            session.merge(dr)
+            session.commit()
             raise AirflowException(err)
 
+        dr.state = State.SUCCESS
+        session.merge(dr)
+        session.commit()
+        session.close()
+
         self.logger.info("Backfill done. Exiting.")
+        self.logger.debug("Done _execute")
 
 
 class LocalTaskJob(BaseJob):

@@ -2536,6 +2536,16 @@ class DAG(LoggingMixin):
         elif isinstance(self._schedule_interval, timedelta):
             return dttm - self._schedule_interval
 
+    def normalize_schedule(self, dttm):
+        """
+        Returns dttm + interval unless dttm is first interval then it returns dttm
+        """
+        following = self.following_schedule(dttm)
+        if self.previous_schedule(following) != dttm:
+            return following
+
+        return dttm
+
     @property
     def tasks(self):
         return list(self.task_dict.values())
@@ -2616,6 +2626,83 @@ class DAG(LoggingMixin):
         session.commit()
         session.close()
         return execution_date
+
+    @property
+    @provide_session
+    def last_scheduled_dagrun(self, session=None):
+        """
+        Returns the last scheduled dag run for this dag, None if there was none.
+        Overriden DagRuns are also considered.
+        """
+        DR = DagRun
+        last = session.query(DR).filter_by(dag_id=self.dag_id).filter(
+            or_(DR.external_trigger == False,
+                DR.run_id.like(DR.ID_PREFIX+'%')
+                )
+        ).order_by(DR.execution_date.desc()).first()
+
+        return last
+
+    @property
+    @provide_session
+    def last_dagrun(self, session=None):
+        """
+        Returns the last dag run for this dag, None if there was none.
+        Last dag run can be any type of run eg. scheduled or backfilled.
+        Overriden DagRuns are ignored
+        """
+        DR = DagRun
+        last = session.query(DR).filter(
+            DR.dag_id == self.dag_id,
+            DR.external_trigger == False
+        ).order_by(DR.execution_date.desc()).first()
+
+        return last
+
+    @provide_session
+    def find_previous_dagrun(self, dttm, session=None):
+        """
+        Returns the previous scheduled dag run seen from date
+        """
+        DR = DagRun
+        previous = session.query(DR).filter_by(dag_id=self.dag_id).filter(
+            or_(DR.external_trigger == False,
+                DR.run_id.like(DR.ID_PREFIX+'%')
+                ))\
+            .filter(DR.execution_date < dttm)\
+            .filter(DR.state != State.OVERRIDDEN)\
+            .order_by(DR.execution_date.desc()).first()
+
+        return previous
+
+    @provide_session
+    def find_next_dagrun(self, dttm, session=None):
+        """
+        Returns the next scheduled dag run seen from date
+        """
+        DR = DagRun
+        dr = session.query(DR).filter_by(dag_id=self.dag_id).filter(
+            or_(DR.external_trigger == False,
+                DR.run_id.like(DR.ID_PREFIX+'%')
+                ))\
+            .filter(DR.execution_date > dttm)\
+            .order_by(DR.execution_date.asc()).first()
+
+        return dr
+
+    @provide_session
+    def get_dagrun_by_date(self, dttm, session=None):
+        """
+        Returns the latest dag run for dttm, None if not found
+        """
+        DR = DagRun
+
+        # check: is start_date enough or should we use the primary key
+        dr = session.query(DR).filter_by(dag_id=self.dag_id).filter(
+            DR.execution_date == dttm
+        ).order_by(DR.start_date.desc()).first()
+
+        return dr
 
     @property
     def subdags(self):
@@ -3327,6 +3414,7 @@ class DagRun(Base):
     run_id = Column(String(ID_LEN))
     external_trigger = Column(Boolean, default=True)
     conf = Column(PickleType)
+    previous = Column(Integer)
 
     __table_args__ = (
         Index('dr_run_id', dag_id, run_id, unique=True),
@@ -3345,6 +3433,54 @@ class DagRun(Base):
     @classmethod
     def id_for_date(klass, date, prefix=ID_FORMAT_PREFIX):
         return prefix.format(date.isoformat()[:19])
+
+    @provide_session
+    def refresh_from_db(self, session=None):
+        DR = DagRun
+
+        dr = session.query(DR).filter(
+            DR.dag_id == self.dag_id,
+            DR.execution_date == self.execution_date,
+            DR.run_id == self.run_id
+        ).first()
+        if dr:
+            self.id = dr.id
+            self.state = dr.state
+            self.previous = dr.previous
+
+    @provide_session
+    def get_previous_dag_run(self, session=None):
+        if not self.previous:
+            return None
+
+        DR = DagRun
+
+        dr = session.query(DR).filter(
+            DR.id == self.previous
+        ).first()
+
+        return dr
+
+    @provide_session
+    def get_task_instances(self, session=None):
+        TI = TaskInstance
+        tis = session.query(TI).filter(
+            TI.dag_id == self.dag_id,
+            TI.execution_date == self.execution_date,
+        ).all()
+
+        return tis
+
+    @provide_session
+    def get_task_instance(self, task_id, session=None):
+        TI = TaskInstance
+        ti = session.query(TI).filter(
+            TI.dag_id == self.dag_id,
+            TI.execution_date == self.execution_date,
+            TI.task_id == task_id
+        ).first()
+
+        return ti
 
 
 class Pool(Base):

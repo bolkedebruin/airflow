@@ -670,6 +670,15 @@ class DagPickle(Base):
         self.pickle = dag
 
 
+class TaskInstanceCounter(Base):
+    __tablename__ = "task_counter"
+    task_id = Column(String(ID_LEN), primary_key=True)
+    dag_id = Column(String(ID_LEN), primary_key=True)
+    execution_date = Column(DateTime, primary_key=True)
+    state = Column(String(50), primary_key=True)
+    counter = Column(Integer, nullable=False)
+
+
 class TaskInstance(Base):
     """
     Task instances store the state of a task instance. This table is the
@@ -979,6 +988,74 @@ class TaskInstance(Base):
         return count == len(task.downstream_task_ids)
 
     @provide_session
+    def notify_downstream(self, state_from, state_to, session=None, dag=None):
+        logging.info("notifying downstream: {} {} {} {}".format(self.task_id, self.dag_id, state_from, state_to))
+        # hack hack hack
+        if not dag:
+            dags_folder = configuration.get("core", "DAGS_FOLDER")
+            dags_folder = os.path.expanduser(dags_folder)
+            bag = DagBag(dags_folder)
+            dag = bag.get_dag(self.dag_id)
+
+        if not hasattr(self, 'task'):
+            self.task = dag.get_task(task_id=self.task_id)
+
+        if not self.task.downstream_task_ids:
+            return
+
+        tis = session.query(TaskInstance).filter(
+            TaskInstance.dag_id == self.dag_id,
+            TaskInstance.execution_date == self.execution_date,
+            TaskInstance.task_id.in_(self.task.downstream_task_ids),
+        )
+        for ti in tis:
+            ti.update(caller=self, state_from=state_from,
+                      state_to=state_to, session=session)
+
+    @provide_session
+    def update(self, caller, state_from, state_to, session=None, dag=None):
+        if state_from != State.NONE:
+            counter = session.query(TaskInstanceCounter).filter(
+                TaskInstanceCounter.task_id == self.task_id,
+                TaskInstanceCounter.execution_date == self.execution_date,
+                TaskInstanceCounter.dag_id == self.dag_id,
+                TaskInstanceCounter.state == state_from
+            ).first()
+            if counter:
+                counter.counter = TaskInstanceCounter.counter - 1
+            else:
+                # this is an error actually
+                counter = TaskInstanceCounter()
+                counter.dag_id = self.dag_id
+                counter.execution_date = self.execution_date
+                counter.task_id = self.task_id
+                counter.state = state_from
+                counter.counter = 0
+                session.add(counter)
+        if state_to != State.NONE:
+            counter = session.query(TaskInstanceCounter).filter(
+                TaskInstanceCounter.task_id == self.task_id,
+                TaskInstanceCounter.execution_date == self.execution_date,
+                TaskInstanceCounter.dag_id == self.dag_id,
+                TaskInstanceCounter.state == state_to
+            ).first()
+            if counter:
+                counter.counter = TaskInstanceCounter.counter + 1
+            else:
+                counter = TaskInstanceCounter()
+                counter.dag_id = self.dag_id
+                counter.execution_date = self.execution_date
+                counter.task_id = self.task_id
+                counter.state = state_to
+                counter.counter = 1
+                session.add(counter)
+
+        session.commit()
+
+        self.notify_downstream(state_from=state_from,
+                               state_to=state_to, session=session, dag=dag)
+
+    @provide_session
     def evaluate_trigger_rule(self, successes, skipped, failed,
                               upstream_failed, done,
                               flag_upstream_failed, session=None):
@@ -1091,33 +1168,33 @@ class TaskInstance(Base):
         if not task.upstream_list or task.trigger_rule == TR.DUMMY:
             return True
 
-        # todo: this query becomes quite expensive with dags that have
-        # many tasks. It should be refactored to let the task report
-        # to the dag run and get the aggregates from there
-        qry = (
-            session
-            .query(
-                func.coalesce(func.sum(
-                    case([(TI.state == State.SUCCESS, 1)], else_=0)), 0),
-                func.coalesce(func.sum(
-                    case([(TI.state == State.SKIPPED, 1)], else_=0)), 0),
-                func.coalesce(func.sum(
-                    case([(TI.state == State.FAILED, 1)], else_=0)), 0),
-                func.coalesce(func.sum(
-                    case([(TI.state == State.UPSTREAM_FAILED, 1)], else_=0)), 0),
-                func.count(TI.task_id),
-            )
-            .filter(
-                TI.dag_id == self.dag_id,
-                TI.task_id.in_(task.upstream_task_ids),
-                TI.execution_date == self.execution_date,
-                TI.state.in_([
-                    State.SUCCESS, State.FAILED,
-                    State.UPSTREAM_FAILED, State.SKIPPED]),
-            )
-        )
+        # todo: in one statement
+        successes = session.query(TaskInstanceCounter.counter).filter(
+            TaskInstanceCounter.dag_id == self.dag_id,
+            TaskInstanceCounter.task_id == self.task_id,
+            TaskInstanceCounter.execution_date == self.execution_date,
+            TaskInstanceCounter.state == State.SUCCESS
+        ).scalar()
+        skipped = session.query(TaskInstanceCounter.counter).filter(
+            TaskInstanceCounter.dag_id == self.dag_id,
+            TaskInstanceCounter.task_id == self.task_id,
+            TaskInstanceCounter.execution_date == self.execution_date,
+            TaskInstanceCounter.state == State.SKIPPED
+        ).scalar()
+        failed = session.query(TaskInstanceCounter.counter).filter(
+            TaskInstanceCounter.dag_id == self.dag_id,
+            TaskInstanceCounter.task_id == self.task_id,
+            TaskInstanceCounter.execution_date == self.execution_date,
+            TaskInstanceCounter.state == State.FAILED
+        ).scalar()
+        upstream_failed = session.query(TaskInstanceCounter.counter).filter(
+            TaskInstanceCounter.dag_id == self.dag_id,
+            TaskInstanceCounter.task_id == self.task_id,
+            TaskInstanceCounter.execution_date == self.execution_date,
+            TaskInstanceCounter.state == State.UPSTREAM_FAILED
+        ).scalar()
 
-        successes, skipped, failed, upstream_failed, done = qry.first()
+        done = long(failed or 0) + long(successes or 0) + long(skipped or 0)
 
         satisfied = self.evaluate_trigger_rule(
             session=session, successes=successes, skipped=skipped,
@@ -1191,6 +1268,8 @@ class TaskInstance(Base):
         iso = datetime.now().isoformat()
         self.hostname = socket.getfqdn()
         self.operator = task.__class__.__name__
+
+        saved_state = self.state
 
         if self.state == State.RUNNING:
             logging.warning("Another instance is running, skipping.")
@@ -1317,6 +1396,9 @@ class TaskInstance(Base):
                 session.merge(self)
             session.commit()
 
+            logging.info("Calling notify downstream {} {}".format(saved_state, self.state))
+            self.notify_downstream(saved_state, self.state, session=session)
+
             # Success callback
             try:
                 if task.on_success_callback:
@@ -1343,6 +1425,8 @@ class TaskInstance(Base):
         self.set_duration()
         if not test_mode:
             session.add(Log(State.FAILED, self))
+
+        saved_state = self.state
 
         # Let's go deeper
         try:
@@ -1377,7 +1461,12 @@ class TaskInstance(Base):
         if not test_mode:
             session.merge(self)
         session.commit()
+
         logging.error(str(error))
+
+        self.notify_downstream(saved_state, self.state, session=session)
+
+        session.close()
 
     @provide_session
     def get_template_context(self, session=None):

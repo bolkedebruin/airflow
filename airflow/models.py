@@ -1010,10 +1010,12 @@ class TaskInstance(Base):
         )
         for ti in tis:
             ti.update(caller=self, state_from=state_from,
-                      state_to=state_to, session=session)
+                      state_to=state_to, session=session, dag=dag)
 
     @provide_session
-    def update(self, caller, state_from, state_to, session=None, dag=None):
+    def update(self, caller, state_from, state_to, dag, session=None):
+        self.task = dag.get_task(task_id=self.task_id)
+
         if state_from != State.NONE:
             counter = session.query(TaskInstanceCounter).filter(
                 TaskInstanceCounter.task_id == self.task_id,
@@ -1049,6 +1051,12 @@ class TaskInstance(Base):
                 counter.state = state_to
                 counter.counter = 1
                 session.add(counter)
+
+        session.commit()
+
+        if self.state is State.NONE and self.is_runnable():
+            self.state = State.READY
+            session.merge(self)
 
         session.commit()
 
@@ -3487,6 +3495,22 @@ class DagRun(Base):
                     )
                 else:
                     tis = tis.filter(TI.state.in_(state))
+
+        return tis.all()
+
+    @provide_session
+    def get_root_instances(self, state=None, session=None):
+        kickstarts = [t for t in self.dag.tasks if not t.upstream_list]
+        root_ids = [t.task_id for t in kickstarts]
+        logging.info("get kickstarts: {}".format(root_ids))
+
+        TI = TaskInstance
+        tis = session.query(TI).filter(
+            TI.dag_id == self.dag_id,
+            TI.execution_date == self.execution_date,
+            TI.task_id.in_(root_ids),
+            TI.state.is_(None)
+        )
 
         return tis.all()
 

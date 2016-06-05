@@ -519,8 +519,44 @@ class SchedulerJob(BaseJob):
                 active_dag_runs.append(run)
 
         for run in active_dag_runs:
-            tis = run.get_task_instances(session=session, state=(State.NONE,
-                                                                 State.UP_FOR_RETRY))
+            kickstarters = run.get_root_instances(session=session, state=State.NONE)
+            logging.info("Kickstarts: {}".format(kickstarters))
+
+            ready = run.get_task_instances(session=session, state=State.READY)
+            logging.info("Ready tasks: {}".format(ready))
+
+            tis = ready + kickstarters
+
+            for ti in tis:
+                task = dag.get_task(ti.task_id)
+                ti.task = task
+
+                self.logger.info('Queuing ready/kickstarter task: {}'.format(ti))
+
+                ti.refresh_from_db(session=session, lock_for_update=True)
+                self.logger.info("Refreshed state: {}".format(ti))
+                # another scheduler could have picked this task
+                # todo: UP_FOR_RETRY still could create a race condition
+                if ti.state is State.SCHEDULED:
+                    session.commit()
+                    self.logger.debug("Task {} was picked up by another scheduler"
+                                      .format(ti))
+                    continue
+                elif ti.state == State.READY:
+                    logging.info("TI ready queued: {} {}".format(ti, ti.state))
+                    ti.state = State.SCHEDULED
+                    logging.info("TI ready queued: {} {}".format(ti, ti.state))
+                    session.commit()
+                elif ti.state is State.NONE and ti.are_dependencies_met():
+                    logging.info("TI queued: {} {}".format(ti, ti.state))
+                    ti.state = State.SCHEDULED
+                    logging.info("TI queued: {} {}".format(ti, ti.state))
+                    session.commit()
+
+                session.commit()
+                queue.put((ti.key, pickle_id))
+
+            tis = run.get_task_instances(session=session, state=State.UP_FOR_RETRY)
 
             # this loop is quite slow as it uses are_dependencies_met for
             # every task (in ti.is_runnable). This is also called in

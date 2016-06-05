@@ -40,6 +40,7 @@ class State(object):
     UP_FOR_RETRY = "up_for_retry"
     UPSTREAM_FAILED = "upstream_failed"
     SKIPPED = "skipped"
+    READY = "ready"
 
     state_color = {
         QUEUED: 'gray',

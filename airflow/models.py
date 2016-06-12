@@ -3502,7 +3502,6 @@ class DagRun(Base):
     def get_root_instances(self, state=None, session=None):
         kickstarts = [t for t in self.dag.tasks if not t.upstream_list]
         root_ids = [t.task_id for t in kickstarts]
-        logging.info("get kickstarts: {}".format(root_ids))
 
         TI = TaskInstance
         tis = session.query(TI).filter(

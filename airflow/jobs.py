@@ -516,13 +516,15 @@ class SchedulerJob(BaseJob):
             run.verify_integrity()
             run.update_state()
             if run.state == State.RUNNING:
+                make_transient(run)
                 active_dag_runs.append(run)
 
         for run in active_dag_runs:
-            kickstarters = run.get_root_instances(session=session, state=State.NONE)
-            logging.info("Kickstarts: {}".format(kickstarters))
+            kickstarters = run.get_root_instances(session=session, state=(State.NONE,))
+            logging.info("DagRun: {} has kickstarters: {}".format(run, kickstarters))
 
-            ready = run.get_task_instances(session=session, state=State.READY)
+            ready = run.get_task_instances(session=session, state=(State.READY,
+                                                                   State.UP_FOR_RETRY))
             logging.info("Ready tasks: {}".format(ready))
 
             tis = ready + kickstarters
@@ -545,49 +547,18 @@ class SchedulerJob(BaseJob):
                 elif ti.state == State.READY:
                     logging.info("TI ready queued: {} {}".format(ti, ti.state))
                     ti.state = State.SCHEDULED
+                    queue.put((ti.key, pickle_id))
                     logging.info("TI ready queued: {} {}".format(ti, ti.state))
-                    session.commit()
                 elif ti.state is State.NONE and ti.are_dependencies_met():
                     logging.info("TI queued: {} {}".format(ti, ti.state))
                     ti.state = State.SCHEDULED
+                    queue.put((ti.key, pickle_id))
                     logging.info("TI queued: {} {}".format(ti, ti.state))
-                    session.commit()
+                elif ti.state is State.UP_FOR_RETRY and ti.is_runnable():
+                    logging.info("TI queued: {} {}".format(ti, ti.state))
+                    queue.put((ti.key, pickle_id))
 
                 session.commit()
-                queue.put((ti.key, pickle_id))
-
-            tis = run.get_task_instances(session=session, state=State.UP_FOR_RETRY)
-
-            # this loop is quite slow as it uses are_dependencies_met for
-            # every task (in ti.is_runnable). This is also called in
-            # update_state above which has already checked these tasks
-            for ti in tis:
-                task = dag.get_task(ti.task_id)
-
-                # fixme: ti.task is transient but needs to be set
-                ti.task = task
-
-                # future: remove adhoc
-                if task.adhoc:
-                    continue
-
-                if ti.is_runnable(flag_upstream_failed=True):
-                    self.logger.debug('Queuing task: {}'.format(ti))
-
-                    ti.refresh_from_db(session=session, lock_for_update=True)
-                    # another scheduler could have picked this task
-                    # todo: UP_FOR_RETRY still could create a race condition
-                    if ti.state is State.SCHEDULED:
-                        session.commit()
-                        self.logger.debug("Task {} was picked up by another scheduler"
-                                          .format(ti))
-                        continue
-                    elif ti.state is State.NONE:
-                        ti.state = State.SCHEDULED
-                        session.merge(ti)
-
-                    session.commit()
-                    queue.put((ti.key, pickle_id))
 
         session.close()
 

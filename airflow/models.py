@@ -1016,13 +1016,13 @@ class TaskInstance(Base):
     def update(self, caller, state_from, state_to, dag, session=None):
         self.task = dag.get_task(task_id=self.task_id)
 
-        if state_from != State.NONE:
+        if state_from is not State.NONE:
             counter = session.query(TaskInstanceCounter).filter(
                 TaskInstanceCounter.task_id == self.task_id,
                 TaskInstanceCounter.execution_date == self.execution_date,
                 TaskInstanceCounter.dag_id == self.dag_id,
                 TaskInstanceCounter.state == state_from
-            ).first()
+            ).with_for_update().first()
             if counter:
                 counter.counter = TaskInstanceCounter.counter - 1
             else:
@@ -1034,13 +1034,13 @@ class TaskInstance(Base):
                 counter.state = state_from
                 counter.counter = 0
                 session.add(counter)
-        if state_to != State.NONE:
+        if state_to is not State.NONE:
             counter = session.query(TaskInstanceCounter).filter(
                 TaskInstanceCounter.task_id == self.task_id,
                 TaskInstanceCounter.execution_date == self.execution_date,
                 TaskInstanceCounter.dag_id == self.dag_id,
                 TaskInstanceCounter.state == state_to
-            ).first()
+            ).with_for_update().first()
             if counter:
                 counter.counter = TaskInstanceCounter.counter + 1
             else:

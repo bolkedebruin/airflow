@@ -26,6 +26,7 @@ import socket
 import subprocess
 import multiprocessing
 import math
+import uuid
 from time import sleep
 
 from sqlalchemy import Column, Integer, String, DateTime, func, Index, or_
@@ -814,6 +815,7 @@ class BackfillJob(BaseJob):
 
         start_date = self.bf_start_date
         end_date = self.bf_end_date
+        run_id = 'backfill__' + str(uuid.uuid4())
 
         # picklin'
         pickle_id = None
@@ -827,6 +829,22 @@ class BackfillJob(BaseJob):
         executor = self.executor
         executor.start()
         executor_fails = Counter()
+
+        # todo: check if there is a previous dag run
+
+        # create a dagrun
+        dr_start_date = start_date or min([t.start_date for t in self.dag.tasks])
+        dr = DagRun(
+            dag_id=self.dag.dag_id,
+            run_id=run_id,
+            execution_date=dr_start_date,
+            start_date=datetime.now(),
+            state=State.RUNNING,
+            external_trigger=False,
+        )
+        session.add(dr)
+        session.commit()
+        dr.refresh_from_db(session=session)
 
         # Build a list of all instances to run
         tasks_to_run = {}
@@ -1009,7 +1027,6 @@ class BackfillJob(BaseJob):
             self.logger.info(msg)
 
         executor.end()
-        session.close()
 
         err = ''
         if failed:
@@ -1033,9 +1050,16 @@ class BackfillJob(BaseJob):
                     'the command line.')
             err += ' These tasks were unable to run:\n{}\n'.format(deadlocked)
         if err:
+            dr.state = State.FAILED
+            session.commit()
             raise AirflowException(err)
 
+        dr.state = State.SUCCESS
+        session.commit()
+        session.close()
+
         self.logger.info("Backfill done. Exiting.")
+
 
 
 class LocalTaskJob(BaseJob):

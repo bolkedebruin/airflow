@@ -10,6 +10,7 @@ addons:
       - slapd
       - ldap-utils
       - openssh-server
+      - krb5-user
 python:
   - "2.7"
   - "3.4"

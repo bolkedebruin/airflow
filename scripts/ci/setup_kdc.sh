@@ -23,5 +23,4 @@ unzip ${TRAVIS_CACHE}/minikdc/minikdc.zip -d /tmp
 
 echo "Path = ${PATH}"
 
-java -cp "/tmp/minikdc-${MINIKDC_VERSION}/*" org.apache.airflow.MiniKdc \
-/tmp ${DIR}/minikdc.properties /tmp/minikdc.keytab \${PRINCIPALS} &
+java -cp "/tmp/minikdc-${MINIKDC_VERSION}/*" org.apache.airflow.MiniKdc /tmp ${DIR}/minikdc.properties /tmp/minikdc.keytab \${PRINCIPALS} &

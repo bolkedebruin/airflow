@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -o verbose
 
+touch ${KRB5_CONFIG}
+
 MINIKDC_VERSION=1.0-SNAPSHOT
 MINIKDC_HOME=/tmp/minikdc
 MINIKDC_CACHE=${CACHE}/minikdc
@@ -24,3 +26,5 @@ unzip ${TRAVIS_CACHE}/minikdc/minikdc.zip -d /tmp
 echo "Path = ${PATH}"
 
 java -cp "/tmp/minikdc-${MINIKDC_VERSION}/*" org.apache.airflow.MiniKdc /tmp ${DIR}/minikdc.properties /tmp/minikdc.keytab \${PRINCIPALS} &
+
+cat ${KRB5_CONFIG}

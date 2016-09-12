@@ -1169,7 +1169,7 @@ class TaskInstance(Base):
             ignore_task_deps=ignore_task_deps)
         if not self.are_dependencies_met(
                 dep_context=queue_dep_context,
-                session=session,
+                #session=session,
                 verbose=True):
             return
 
@@ -1192,7 +1192,7 @@ class TaskInstance(Base):
             ignore_ti_state=ignore_ti_state)
         runnable = self.are_dependencies_met(
             dep_context=dep_context,
-            session=session,
+            #session=session,
             verbose=True)
 
         if not runnable and not mark_success:

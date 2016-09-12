@@ -354,8 +354,10 @@ class TaskInstanceTest(unittest.TestCase):
         Test that retry delays are respected
         """
         dag = models.DAG(dag_id='test_retry_handling')
+        session = settings.Session
+
         task = BashOperator(
-            task_id='test_retry_handling_op',
+            task_id='test_retry_handling_op_1',
             bash_command='exit 1',
             retries=1,
             retry_delay=datetime.timedelta(seconds=3),
@@ -371,6 +373,9 @@ class TaskInstanceTest(unittest.TestCase):
 
         ti = TI(
             task=task, execution_date=datetime.datetime.now())
+        ti.end_date = datetime.datetime.now()
+        #session.add(ti)
+        #session.commit()
 
         # first run -- up for retry
         run_with_error(ti)
@@ -386,6 +391,8 @@ class TaskInstanceTest(unittest.TestCase):
         run_with_error(ti)
         self.assertEqual(ti.state, State.FAILED)
 
+        session.close()
+
     @patch.object(TI, 'pool_full')
     def test_retry_handling(self, mock_pool_full):
         """
@@ -395,8 +402,10 @@ class TaskInstanceTest(unittest.TestCase):
         mock_pool_full.return_value = False
 
         dag = models.DAG(dag_id='test_retry_handling')
+        session = settings.Session
+
         task = BashOperator(
-            task_id='test_retry_handling_op',
+            task_id='test_retry_handling_op_2',
             bash_command='exit 1',
             retries=1,
             retry_delay=datetime.timedelta(seconds=0),
@@ -412,6 +421,9 @@ class TaskInstanceTest(unittest.TestCase):
 
         ti = TI(
             task=task, execution_date=datetime.datetime.now())
+        ti.end_date = datetime.datetime.now()
+        session.add(ti)
+        session.commit()
 
         # first run -- up for retry
         run_with_error(ti)
@@ -436,6 +448,8 @@ class TaskInstanceTest(unittest.TestCase):
         run_with_error(ti)
         self.assertEqual(ti.state, State.FAILED)
         self.assertEqual(ti.try_number, 4)
+
+        session.close()
 
     def test_next_retry_datetime(self):
         delay = datetime.timedelta(seconds=3)

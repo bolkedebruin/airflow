@@ -30,7 +30,7 @@ ipython
 jaydebeapi
 jinja2<2.9.0
 jira
-ldap3
+ldap3==2.2.0
 lxml
 markdown
 mock

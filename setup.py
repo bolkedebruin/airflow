@@ -145,7 +145,7 @@ mssql = ['pymssql>=2.1.1', 'unicodecsv>=0.14.1']
 mysql = ['mysqlclient>=1.3.6']
 rabbitmq = ['librabbitmq>=1.6.1']
 oracle = ['cx_Oracle>=5.1.2']
-postgres = ['psycopg2>=2.6']
+postgres = ['psycopg2==2.6.2']
 salesforce = ['simple-salesforce>=0.72']
 s3 = [
     'boto>=2.36.0',

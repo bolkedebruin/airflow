@@ -60,7 +60,7 @@ def get_ldap_connection(dn=None, password=None):
         pass
 
     server = Server(configuration.get("ldap", "uri"), use_ssl, tls_configuration)
-    conn = Connection(server, dn, password)
+    conn = Connection(server, dn.decode('utf-8'), password.decode('utf-8'))
 
     logging.info("server {}, dn: {} password: {}".format(server, dn, password))
     if not conn.bind():

@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+from future.utils import native
 
 import flask_login
 from flask_login import login_required, current_user, logout_user
@@ -60,7 +61,7 @@ def get_ldap_connection(dn=None, password=None):
         pass
 
     server = Server(configuration.get("ldap", "uri"), use_ssl, tls_configuration)
-    conn = Connection(server, dn.decode('utf-8'), password.decode('utf-8'))
+    conn = Connection(server, native(dn), native(password))
 
     logging.info("server {}, dn: {} password: {}".format(server, dn, password))
     if not conn.bind():

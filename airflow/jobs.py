@@ -2072,6 +2072,7 @@ class LocalTaskJob(BaseJob):
         self.pool = pool
         self.pickle_id = pickle_id
         self.mark_success = mark_success
+        self.return_code = None
 
         # terminating state is used so that a job don't try to
         # terminate multiple times
@@ -2105,6 +2106,7 @@ class LocalTaskJob(BaseJob):
                 if return_code is not None:
                     self.logger.info("Task exited with return code {}"
                                      .format(return_code))
+                    self.return_code = return_code
                     return
 
                 # Periodically heartbeat so that the scheduler doesn't think this
@@ -2134,6 +2136,9 @@ class LocalTaskJob(BaseJob):
     def on_kill(self):
         self.task_runner.terminate()
         self.task_runner.on_finish()
+
+        if self.return_code is not None:
+            sys.exit(self.return_code)
 
     def _is_descendant_process(self, pid):
         """Checks if pid is a descendant of the current process.

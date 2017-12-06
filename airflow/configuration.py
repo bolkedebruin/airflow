@@ -385,7 +385,7 @@ if not os.path.isfile(TEST_CONFIG_FILE):
     )
     with open(TEST_CONFIG_FILE, 'w') as f:
         cfg = parameterized_config(TEST_CONFIG)
-        f.write(cfg.split(TEMPLATE_START)[-1].strip())
+        f.write(cfg.decode("utf-8").split(TEMPLATE_START)[-1].strip())
 if not os.path.isfile(AIRFLOW_CONFIG):
     log.info(
         'Creating new Airflow config file in: %s',
@@ -393,7 +393,7 @@ if not os.path.isfile(AIRFLOW_CONFIG):
     )
     with open(AIRFLOW_CONFIG, 'w') as f:
         cfg = parameterized_config(DEFAULT_CONFIG)
-        f.write(cfg.split(TEMPLATE_START)[-1].strip())
+        f.write(cfg.decode("utf-8").split(TEMPLATE_START)[-1].strip())
 
 log.info("Reading the config from %s", AIRFLOW_CONFIG)
 

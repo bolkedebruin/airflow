@@ -68,7 +68,11 @@ class TestFileTaskLogHandler(unittest.TestCase):
             python_callable=task_callable,
             provide_context=True
         )
-        ti = TaskInstance(task=task, execution_date=DEFAULT_DATE)
+        dr = dag.create_dagrun(
+            run_id="test_id",
+            execution_date=DEFAULT_DATE,
+            start_date=datetime.utcnow())
+        ti = dr.get_task_instance(task_id=task.task_id)
 
         logger = ti.log
         ti.log.disabled = False

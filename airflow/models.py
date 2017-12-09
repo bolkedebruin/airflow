@@ -1065,7 +1065,6 @@ class TaskInstance(Base, LoggingMixin):
             self.pid = ti.pid
         else:
             self.state = None
-            session.commit()
 
     @provide_session
     def clear_xcom_data(self, session=None):

@@ -26,6 +26,8 @@ from airflow.operators.python_operator import PythonOperator
 from airflow.settings import Session
 from airflow.utils.log.logging_mixin import set_context
 from airflow.utils.log.file_task_handler import FileTaskHandler
+from airflow.utils.state import State
+
 
 DEFAULT_DATE = datetime(2016, 1, 1)
 TASK_LOGGER = 'airflow.task'
@@ -71,7 +73,8 @@ class TestFileTaskLogHandler(unittest.TestCase):
         dr = dag.create_dagrun(
             run_id="test_id",
             execution_date=DEFAULT_DATE,
-            start_date=datetime.utcnow())
+            start_date=datetime.utcnow(),
+            state=State.RUNNING)
         ti = dr.get_task_instance(task_id=task.task_id)
 
         logger = ti.log

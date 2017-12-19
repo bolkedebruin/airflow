@@ -54,6 +54,7 @@ env:
     - TOX_ENV=py35-backend_sqlite
     - TOX_ENV=py35-backend_postgres
     - TOX_ENV=flake8
+    - TOX_ENV=license
 matrix:
   exclude:
     - python: "3.5"
@@ -70,6 +71,8 @@ matrix:
       env: TOX_ENV=py35-backend_postgres
     - python: "2.7"
       env: TOX_ENV=flake8
+    - python: "2.7"
+      env: TOX_ENV=license
 cache:
   directories:
     - $HOME/.wheelhouse/

@@ -5,6 +5,7 @@
 [![Coverage Status](https://img.shields.io/codecov/c/github/apache/incubator-airflow/master.svg)](https://codecov.io/github/apache/incubator-airflow?branch=master)
 [![Documentation](https://img.shields.io/badge/docs-pythonhosted-blue.svg)](http://pythonhosted.org/airflow/)
 [![Join the chat at https://gitter.im/apache/incubator-airflow](https://badges.gitter.im/apache/incubator-airflow.svg)](https://gitter.im/apache/incubator-airflow?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Fbolkedebruin%2Fairflow.svg?type=shield)](https://app.fossa.io/projects/git%2Bgithub.com%2Fbolkedebruin%2Fairflow?ref=badge_shield)
 
 _NOTE: The transition from 1.8.0 (or before) to 1.8.1 (or after) requires uninstalling Airflow before installing the new version. The package name was changed from `airflow` to `apache-airflow` as of version 1.8.1._
 
@@ -211,3 +212,7 @@ Currently **officially** using Airflow:
 * [Chat](https://gitter.im/apache/incubator-airflow)
 * [Apache Airflow Incubation Status](http://incubator.apache.org/projects/airflow.html)
 * [More](https://cwiki.apache.org/confluence/display/AIRFLOW/Airflow+Links)
+
+
+## License
+[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Fbolkedebruin%2Fairflow.svg?type=large)](https://app.fossa.io/projects/git%2Bgithub.com%2Fbolkedebruin%2Fairflow?ref=badge_large)

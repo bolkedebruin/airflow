@@ -7,9 +7,9 @@
 # to you under the Apache License, Version 2.0 (the
 # "License"); you may not use this file except in compliance
 # with the License.  You may obtain a copy of the License at
-# 
+#
 #   http://www.apache.org/licenses/LICENSE-2.0
-# 
+#
 # Unless required by applicable law or agreed to in writing,
 # software distributed under the License is distributed on an
 # "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
@@ -48,16 +48,14 @@ login = None
 def load_login():
     log = LoggingMixin().log
 
-    auth_backend = 'airflow.default_login'
+    auth_backend = 'airflow.contrib.auth.backends.password_auth'
     try:
-        if conf.getboolean('webserver', 'AUTHENTICATE'):
-            auth_backend = conf.get('webserver', 'auth_backend')
+        auth_backend = conf.get('webserver', 'auth_backend')
     except conf.AirflowConfigException:
         if conf.getboolean('webserver', 'AUTHENTICATE'):
             log.warning(
                 "auth_backend not found in webserver config reverting to "
-                "*deprecated*  behavior of importing airflow_login")
-            auth_backend = "airflow_login"
+                "default %s", auth_backend)
 
     try:
         global login
@@ -68,8 +66,7 @@ def load_login():
             "Please correct your authentication backend or disable authentication: %s",
             auth_backend, err
         )
-        if conf.getboolean('webserver', 'AUTHENTICATE'):
-            raise AirflowException("Failed to import authentication backend")
+        raise AirflowException("Failed to import authentication backend")
 
 
 class AirflowViewPlugin(BaseView):
@@ -79,6 +76,7 @@ class AirflowViewPlugin(BaseView):
 class AirflowMacroPlugin(object):
     def __init__(self, namespace):
         self.namespace = namespace
+
 
 from airflow import operators
 from airflow import sensors  # noqa: E402

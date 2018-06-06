@@ -5,6 +5,16 @@ assists users migrating to a new version.
 
 ## Airflow Master
 
+### Secure by default Webserver and API
+
+The webserver and API are now configured secure by default. In addition it is not possible anymore to turn security off.
+We feel this is the right way to go, to protect unaware users and corporations to unintended Apache Airflow installations
+exposed to the Internet.
+
+If you are currently running an Airflow installation without password protection you will need to set a password by issuing
+
+`airflow `
+
 ### Add a configuration variable(default_dag_run_display_number) to control numbers of dag run for display
 Add a configuration variable(default_dag_run_display_number) under webserver section to control num of dag run to show in UI.
 

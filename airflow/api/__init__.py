@@ -31,7 +31,7 @@ log = LoggingMixin().log
 
 
 def load_auth():
-    auth_backend = 'airflow.api.auth.backend.default'
+    auth_backend = 'airflow.api.auth.backend.deny_all'
     try:
         auth_backend = conf.get("api", "auth_backend")
     except conf.AirflowConfigException:

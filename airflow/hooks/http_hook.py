@@ -40,9 +40,14 @@ class HttpHook(BaseHook):
     def __init__(
         self,
         method='POST',
-        http_conn_id='http_default'
+        conn_id='http_default',
+        *args,
+        **kwargs
     ):
-        self.http_conn_id = http_conn_id
+        self.conn_id = conn_id
+        if 'http_conn_id' in kwargs:
+            self.conn_id = kwargs['http_conn_id']
+
         self.method = method
         self.base_url = None
         self._retry_obj = None
@@ -55,7 +60,7 @@ class HttpHook(BaseHook):
         :param headers: additional headers to be passed through as a dictionary
         :type headers: dict
         """
-        conn = self.get_connection(self.http_conn_id)
+        conn = self.get_connection(self.conn_id)
         session = requests.Session()
 
         if "://" in conn.host:
@@ -177,7 +182,7 @@ class HttpHook(BaseHook):
 
 
         Example: ::
-            hook = HttpHook(http_conn_id='my_conn',method='GET')
+            hook = HttpHook(conn_id='my_conn',method='GET')
             retry_args = dict(
                  wait=tenacity.wait_exponential(),
                  stop=tenacity.stop_after_attempt(10),

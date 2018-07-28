@@ -55,14 +55,15 @@ class SimpleDag(BaseDag):
         self._concurrency = dag.concurrency
         self._pickle_id = pickle_id
         self._task_special_args = {}
-        self._task_connections = {}
+        self._task_conn_ids = {}
         for task in dag.tasks:
             special_args = {}
             if task.task_concurrency is not None:
                 special_args['task_concurrency'] = task.task_concurrency
             if len(special_args) > 0:
                 self._task_special_args[task.task_id] = special_args
-            self._task_conn_id[task.task_id] = task.conn_id
+            print("TASK: {} CONN_ID: {}".format(task.task_id, task.conn_id))
+            self._task_conn_ids[task.task_id] = task.conn_id
 
     @property
     def dag_id(self):
@@ -117,8 +118,8 @@ class SimpleDag(BaseDag):
         return self._task_special_args
 
     def get_task_conn_id(self, task_id):
-        if self._task_connections.has_key(task_id):
-            return self._task_connections[task_id]
+        if self._task_conn_ids.has_key(task_id):
+            return self._task_conn_ids[task_id]
         else:
             return None
 

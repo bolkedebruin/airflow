@@ -61,13 +61,15 @@ class SimpleHttpOperator(BaseOperator):
                  response_check=None,
                  extra_options=None,
                  xcom_push=False,
-                 http_conn_id='http_default', *args, **kwargs):
+                 conn_id='http_default', *args, **kwargs):
         """
         If xcom_push is True, response of an HTTP request will also
         be pushed to an XCom.
         """
         super(SimpleHttpOperator, self).__init__(*args, **kwargs)
-        self.http_conn_id = http_conn_id
+        self.conn_id = conn_id
+        if 'http_conn_id' in kwargs:
+            self.conn_id = kwargs['http_conn_id']
         self.method = method
         self.endpoint = endpoint
         self.headers = headers or {}
@@ -77,7 +79,7 @@ class SimpleHttpOperator(BaseOperator):
         self.xcom_push_flag = xcom_push
 
     def execute(self, context):
-        http = HttpHook(self.method, http_conn_id=self.http_conn_id)
+        http = HttpHook(self.method, conn_id=self.conn_id)
 
         self.log.info("Calling HTTP method")
 

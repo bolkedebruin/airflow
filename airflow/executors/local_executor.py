@@ -87,6 +87,7 @@ class LocalWorker(multiprocessing.Process, LoggingMixin):
         command = "exec bash -c '{0}'".format(command)
         env = os.environ.copy()
         env['__AIRFLOW_METADATA'] = metadata
+        self.log.info("METADATA %s", env)
         try:
             subprocess.check_call(command, shell=True, close_fds=True, env=env)
             state = State.SUCCESS

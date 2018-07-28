@@ -1338,7 +1338,7 @@ class SchedulerJob(BaseJob):
                 simple_dag.get_task_conn_id(task_instance.task_id)
             )
 
-            conn_list = list()
+            conn_dict = dict()
             for conn in connections:
                 c = dict()
                 c['password'] = conn.get_password()
@@ -1348,8 +1348,9 @@ class SchedulerJob(BaseJob):
                 c['port'] = conn.port
                 c['extra'] = conn.extra
                 c['conn_type'] = conn.conn_type
-                conn_list.append(c)
-            conn_json = json.dumps(conn_list)
+                c['conn_id'] = conn.conn_id
+                conn_dict[conn.conn_id] = c
+            conn_json = json.dumps(conn_dict)
 
             priority = task_instance.priority_weight
             queue = task_instance.queue

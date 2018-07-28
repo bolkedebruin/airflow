@@ -47,10 +47,13 @@ class BaseHook(LoggingMixin):
 
     @classmethod
     def get_connections(cls, conn_id):
+        print(os.environ)
         conn_json = os.environ.get("__AIRFLOW_METADATA")
         conn_list = json.loads(conn_json)
         connections = list()
-        for c in conn_list:
+
+        if conn_id in conn_list:
+            c = conn_list[conn_id]
             i = Connection(conn_id=c['conn_id'],
                            conn_type=c['conn_type'],
                            login=c['login'],

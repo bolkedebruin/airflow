@@ -55,7 +55,7 @@ class HttpSensor(BaseSensorOperator):
     @apply_defaults
     def __init__(self,
                  endpoint,
-                 http_conn_id='http_default',
+                 conn_id='http_default',
                  method='GET',
                  request_params=None,
                  headers=None,
@@ -63,7 +63,10 @@ class HttpSensor(BaseSensorOperator):
                  extra_options=None, *args, **kwargs):
         super(HttpSensor, self).__init__(*args, **kwargs)
         self.endpoint = endpoint
-        self.http_conn_id = http_conn_id
+        self.conn_id = conn_id
+        if 'http_conn_id' in kwargs:
+            self.conn_id = kwargs['http_conn_id']
+
         self.request_params = request_params or {}
         self.headers = headers or {}
         self.extra_options = extra_options or {}
@@ -71,7 +74,7 @@ class HttpSensor(BaseSensorOperator):
 
         self.hook = HttpHook(
             method=method,
-            http_conn_id=http_conn_id)
+            conn_id=conn_id)
 
     def poke(self, context):
         self.log.info('Poking: %s', self.endpoint)

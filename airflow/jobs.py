@@ -23,6 +23,7 @@ from __future__ import print_function
 from __future__ import unicode_literals
 
 import getpass
+import json
 import logging
 import multiprocessing
 import os
@@ -1333,6 +1334,23 @@ class SchedulerJob(BaseJob):
                 file_path=simple_dag.full_filepath,
                 pickle_id=simple_dag.pickle_id))
 
+            connections = models.Connection.load(
+                simple_dag.get_task_conn_id(task_instance.task_id)
+            )
+
+            conn_list = list()
+            for conn in connections:
+                c = dict()
+                c['password'] = conn.get_password()
+                c['login'] = conn.login
+                c['host'] = conn.host
+                c['schema'] = conn.schema
+                c['port'] = conn.port
+                c['extra'] = conn.extra
+                c['conn_type'] = conn.conn_type
+                conn_list.append(c)
+            conn_json = json.dumps(conn_list)
+
             priority = task_instance.priority_weight
             queue = task_instance.queue
             self.log.info(
@@ -1352,6 +1370,7 @@ class SchedulerJob(BaseJob):
             self.executor.queue_command(
                 task_instance,
                 command,
+                metadata=conn_json,
                 priority=priority,
                 queue=queue)
 

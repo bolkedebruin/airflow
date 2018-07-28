@@ -142,7 +142,7 @@ class LocalExecutor(BaseExecutor):
             self.executor.workers_used = 0
             self.executor.workers_active = 0
 
-        def execute_async(self, key, command):
+        def execute_async(self, key, command, metadata=None):
             """
             :param key: the key to identify the TI
             :type key: Tuple(dag_id, task_id, execution_date)
@@ -152,6 +152,7 @@ class LocalExecutor(BaseExecutor):
             local_worker = LocalWorker(self.executor.result_queue)
             local_worker.key = key
             local_worker.command = command
+            local_worker.metadata = metadata
             self.executor.workers_used += 1
             self.executor.workers_active += 1
             local_worker.start()
@@ -187,14 +188,14 @@ class LocalExecutor(BaseExecutor):
             for w in self.executor.workers:
                 w.start()
 
-        def execute_async(self, key, command):
+        def execute_async(self, key, command, metadata=None):
             """
             :param key: the key to identify the TI
             :type key: Tuple(dag_id, task_id, execution_date)
             :param command: the command to execute
             :type command: string
             """
-            self.executor.queue.put((key, command))
+            self.executor.queue.put((key, command, metadata))
 
         def sync(self):
             while not self.executor.result_queue.empty():
@@ -221,8 +222,9 @@ class LocalExecutor(BaseExecutor):
 
         self.impl.start()
 
-    def execute_async(self, key, command, queue=None, executor_config=None):
-        self.impl.execute_async(key=key, command=command)
+    def execute_async(self, key, command, queue=None,
+                      executor_config=None, metadata=None):
+        self.impl.execute_async(key=key, command=command, metadata=metadata)
 
     def sync(self):
         self.impl.sync()

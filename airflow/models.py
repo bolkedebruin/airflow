@@ -815,6 +815,18 @@ class Connection(Base, LoggingMixin):
 
         return obj
 
+    @classmethod
+    @provide_session
+    def load(cls, conn_id, session=None):
+        connections = (
+            session.query(Connection)
+                .filter(Connection.conn_id == conn_id)
+                .all()
+        )
+        session.expunge_all()
+
+        return connections
+
 
 class DagPickle(Base):
     """
@@ -2376,6 +2388,7 @@ class BaseOperator(LoggingMixin):
             executor_config=None,
             inlets=None,
             outlets=None,
+            conn_id=None,
             *args,
             **kwargs):
 
@@ -2460,6 +2473,8 @@ class BaseOperator(LoggingMixin):
             dag = _CONTEXT_MANAGER_DAG
         if dag:
             self.dag = dag
+
+        self.conn_id = conn_id
 
         self._log = logging.getLogger("airflow.task.operators")
 

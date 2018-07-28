@@ -7,9 +7,9 @@
 # to you under the Apache License, Version 2.0 (the
 # "License"); you may not use this file except in compliance
 # with the License.  You may obtain a copy of the License at
-# 
+#
 #   http://www.apache.org/licenses/LICENSE-2.0
-# 
+#
 # Unless required by applicable law or agreed to in writing,
 # software distributed under the License is distributed on an
 # "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
@@ -55,12 +55,14 @@ class SimpleDag(BaseDag):
         self._concurrency = dag.concurrency
         self._pickle_id = pickle_id
         self._task_special_args = {}
+        self._task_connections = {}
         for task in dag.tasks:
             special_args = {}
             if task.task_concurrency is not None:
                 special_args['task_concurrency'] = task.task_concurrency
             if len(special_args) > 0:
                 self._task_special_args[task.task_id] = special_args
+            self._task_conn_id[task.task_id] = task.conn_id
 
     @property
     def dag_id(self):
@@ -113,6 +115,12 @@ class SimpleDag(BaseDag):
     @property
     def task_special_args(self):
         return self._task_special_args
+
+    def get_task_conn_id(self, task_id):
+        if self._task_connections.has_key(task_id):
+            return self._task_connections[task_id]
+        else:
+            return None
 
     def get_task_special_arg(self, task_id, special_arg_name):
         if task_id in self._task_special_args and special_arg_name in self._task_special_args[task_id]:

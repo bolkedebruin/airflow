@@ -22,6 +22,7 @@ from __future__ import division
 from __future__ import print_function
 from __future__ import unicode_literals
 
+import json
 import os
 import random
 
@@ -45,35 +46,22 @@ class BaseHook(LoggingMixin):
         pass
 
     @classmethod
-    @provide_session
-    def _get_connections_from_db(cls, conn_id, session=None):
-        db = (
-            session.query(Connection)
-            .filter(Connection.conn_id == conn_id)
-            .all()
-        )
-        session.expunge_all()
-        if not db:
-            raise AirflowException(
-                "The conn_id `{0}` isn't defined".format(conn_id))
-        return db
-
-    @classmethod
-    def _get_connection_from_env(cls, conn_id):
-        environment_uri = os.environ.get(CONN_ENV_PREFIX + conn_id.upper())
-        conn = None
-        if environment_uri:
-            conn = Connection(conn_id=conn_id, uri=environment_uri)
-        return conn
-
-    @classmethod
     def get_connections(cls, conn_id):
-        conn = cls._get_connection_from_env(conn_id)
-        if conn:
-            conns = [conn]
-        else:
-            conns = cls._get_connections_from_db(conn_id)
-        return conns
+        conn_json = os.environ.get("__AIRFLOW_METADATA")
+        conn_list = json.loads(conn_json)
+        connections = list()
+        for c in conn_list:
+            i = Connection(conn_id=c['conn_id'],
+                           conn_type=c['conn_type'],
+                           login=c['login'],
+                           password=c['password'],
+                           host=c['host'],
+                           port=c['port'],
+                           extra=c['extra'],
+                           schema=c['schema'])
+            connections.append(i)
+
+        return connections
 
     @classmethod
     def get_connection(cls, conn_id):

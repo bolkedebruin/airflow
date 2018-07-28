@@ -44,6 +44,7 @@ This option could lead to the unification of the executor implementations, runni
 locally, into just one `LocalExecutor` with multiple modes.
 """
 
+import os
 import multiprocessing
 import subprocess
 import time
@@ -70,8 +71,9 @@ class LocalWorker(multiprocessing.Process, LoggingMixin):
         self.result_queue = result_queue
         self.key = None
         self.command = None
+        self.metadata = None
 
-    def execute_work(self, key, command):
+    def execute_work(self, key, command, metadata=None):
         """
         Executes command received and stores result state in queue.
         :param key: the key to identify the TI
@@ -83,8 +85,10 @@ class LocalWorker(multiprocessing.Process, LoggingMixin):
             return
         self.log.info("%s running %s", self.__class__.__name__, command)
         command = "exec bash -c '{0}'".format(command)
+        env = os.environ.copy()
+        env['__AIRFLOW_METADATA'] = metadata
         try:
-            subprocess.check_call(command, shell=True, close_fds=True)
+            subprocess.check_call(command, shell=True, close_fds=True, env=env)
             state = State.SUCCESS
         except subprocess.CalledProcessError as e:
             state = State.FAILED
@@ -110,12 +114,12 @@ class QueuedLocalWorker(LocalWorker):
 
     def run(self):
         while True:
-            key, command = self.task_queue.get()
+            key, command, metadata = self.task_queue.get()
             if key is None:
                 # Received poison pill, no more tasks to run
                 self.task_queue.task_done()
                 break
-            self.execute_work(key, command)
+            self.execute_work(key, command, metadata)
             self.task_queue.task_done()
             time.sleep(1)
 

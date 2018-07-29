@@ -22,13 +22,11 @@ from __future__ import division
 from __future__ import print_function
 from __future__ import unicode_literals
 
-import json
 import os
 import random
 
 from airflow.models import Connection
-from airflow.exceptions import AirflowException
-from airflow.utils.db import provide_session
+from airflow.proto import connection_pb2
 from airflow.utils.log.logging_mixin import LoggingMixin
 
 CONN_ENV_PREFIX = 'AIRFLOW_CONN_'
@@ -48,21 +46,24 @@ class BaseHook(LoggingMixin):
     @classmethod
     def get_connections(cls, conn_id):
         print(os.environ)
-        conn_json = os.environ.get("__AIRFLOW_METADATA")
-        conn_list = json.loads(conn_json)
-        connections = list()
+        metadata = connection_pb2.Metadata()
+        metadata.ParseFromString(os.environ.get("__AIRFLOW_METADATA"))
 
-        if conn_id in conn_list:
-            c = conn_list[conn_id]
-            i = Connection(conn_id=c['conn_id'],
-                           conn_type=c['conn_type'],
-                           login=c['login'],
-                           password=c['password'],
-                           host=c['host'],
-                           port=c['port'],
-                           extra=c['extra'],
-                           schema=c['schema'])
-            connections.append(i)
+        connections = list()
+        for conn in metadata.connections:
+            if conn.conn_id != conn_id:
+                continue
+
+            connections.append(Connection(
+                conn_id=conn.conn_id,
+                conn_type=conn.conn_type,
+                login=conn.login,
+                password=conn.password,
+                host=conn.host,
+                port=conn.port,
+                extra=conn.extra,
+                schema=conn.schema,
+            ))
 
         return connections
 

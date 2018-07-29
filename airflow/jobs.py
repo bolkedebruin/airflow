@@ -23,7 +23,6 @@ from __future__ import print_function
 from __future__ import unicode_literals
 
 import getpass
-import json
 import logging
 import multiprocessing
 import os
@@ -49,6 +48,7 @@ from airflow import configuration as conf
 from airflow import executors, models, settings
 from airflow.exceptions import AirflowException
 from airflow.models import DAG, DagRun
+from airflow.proto import connection_pb2
 from airflow.settings import Stats
 from airflow.task.task_runner import get_task_runner
 from airflow.ti_deps.dep_context import DepContext, QUEUE_DEPS, RUN_DEPS
@@ -1334,23 +1334,24 @@ class SchedulerJob(BaseJob):
                 file_path=simple_dag.full_filepath,
                 pickle_id=simple_dag.pickle_id))
 
-            connections = models.Connection.load(
+            db_conns = models.Connection.load(
                 simple_dag.get_task_conn_id(task_instance.task_id)
             )
 
-            conn_dict = dict()
-            for conn in connections:
-                c = dict()
-                c['password'] = conn.get_password()
-                c['login'] = conn.login
-                c['host'] = conn.host
-                c['schema'] = conn.schema
-                c['port'] = conn.port
-                c['extra'] = conn.extra
-                c['conn_type'] = conn.conn_type
-                c['conn_id'] = conn.conn_id
-                conn_dict[conn.conn_id] = c
-            conn_json = json.dumps(conn_dict)
+            # serialize connection data
+            conns = connection_pb2.Metadata()
+            for conn in db_conns:
+                c = conns.connections.add()
+                if conn.get_password(): c.password = conn.get_password()
+                if conn.login: c.login = conn.login
+                if conn.host: c.host = conn.host
+                if conn.schema: c.schema = conn.schema
+                if conn.port: c.port = int(conn.port)
+                if conn.extra: c.extra = conn.extra
+                if conn.conn_type: c.conn_type = conn.conn_type
+                if conn.conn_id: c.conn_id = conn.conn_id
+
+            metadata = conns.SerializeToString()
 
             priority = task_instance.priority_weight
             queue = task_instance.queue
@@ -1371,7 +1372,7 @@ class SchedulerJob(BaseJob):
             self.executor.queue_command(
                 task_instance,
                 command,
-                metadata=conn_json,
+                metadata=metadata,
                 priority=priority,
                 queue=queue)
 

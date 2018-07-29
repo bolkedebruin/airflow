@@ -118,7 +118,7 @@ class SimpleDag(BaseDag):
         return self._task_special_args
 
     def get_task_conn_id(self, task_id):
-        if self._task_conn_ids.has_key(task_id):
+        if task_id in self._task_conn_ids:
             return self._task_conn_ids[task_id]
         else:
             return None

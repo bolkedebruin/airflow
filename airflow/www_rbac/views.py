@@ -31,7 +31,6 @@ from datetime import timedelta
 
 
 import markdown
-import nvd3
 import pendulum
 import sqlalchemy as sqla
 from flask import (
@@ -63,6 +62,7 @@ from airflow.utils.db import provide_session
 from airflow.utils.helpers import alchemy_to_dict, render_log_filename
 from airflow.utils.json import json_ser
 from airflow.utils.state import State
+from airflow._vendor import nvd3
 from airflow.www_rbac import utils as wwwutils
 from airflow.www_rbac.app import app, appbuilder
 from airflow.www_rbac.decorators import action_logging, gzipped, has_dag_access

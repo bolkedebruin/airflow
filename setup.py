@@ -302,12 +302,11 @@ def do_setup():
             'jinja2>=2.7.3, <=2.10.0',
             'markdown>=2.5.2, <3.0',
             'pandas>=0.17.1, <1.0.0',
-            'pendulum==1.4.4',
+            'pendulum==2.0.4',
             'psutil>=4.2.0, <6.0.0',
             'pygments>=2.0.1, <3.0',
             'python-daemon>=2.1.1, <2.2',
             'python-dateutil>=2.3, <3',
-            'python-nvd3==0.15.0',
             'requests>=2.5.1, <3',
             'setproctitle>=1.1.8, <2',
             'sqlalchemy>=1.1.15, <1.3.0',
@@ -321,6 +320,7 @@ def do_setup():
             'zope.deprecation>=4.0, <5.0',
         ],
         setup_requires=[
+            'text-unidecode==1.2',  # Avoid GPL dependency, pip uses reverse order(!)
             'docutils>=0.14, <1.0',
         ],
         extras_require={

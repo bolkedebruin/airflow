@@ -61,4 +61,4 @@ apache-airflow-.*\+source.tar.gz.*
 apache-airflow-.*\+bin.tar.gz.*
 
 # vendored modules
-airflow/_vendor/*
+_vendor/*
